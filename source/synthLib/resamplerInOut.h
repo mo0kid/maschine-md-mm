@@ -5,7 +5,10 @@
 #include "midiTypes.h"
 #include "resampler.h"
 
+#include <array>
 #include <memory>	// unique_ptr
+#include <tuple>
+#include <vector>
 
 namespace synthLib
 {
@@ -18,11 +21,10 @@ namespace synthLib
 
 		ResamplerInOut(uint32_t _channelCountIn, uint32_t _channelCountOut);
 
-		void setResamplerMode(Resampler::Mode _mode);
-		Resampler::Mode getResamplerMode() const { return m_mode; }
 		void setDeviceSamplerate(float _samplerate);
 		void setHostSamplerate(float _samplerate);
 		void setSamplerates(float _hostSamplerate, float _deviceSamplerate);
+		void setActiveOutputChannelCount(uint32_t _channelCount);
 		void reconfigure(uint32_t _channelCountIn, uint32_t _channelCountOut,
 			float _hostSamplerate, float _deviceSamplerate);
 		void reserveMidiEventCapacity(size_t _capacity);
@@ -46,16 +48,16 @@ namespace synthLib
 
 		uint32_t m_channelCountIn;
 		uint32_t m_channelCountOut;
+		uint32_t m_activeChannelCountOut;
 
 		std::unique_ptr<Resampler> m_out = nullptr;
 		std::unique_ptr<Resampler> m_in = nullptr;
 
 		float m_samplerateDevice = 0;
 		float m_samplerateHost = 0;
-		Resampler::Mode m_mode = Resampler::Mode::Legacy;
-
 		AudioBuffer m_scaledInput;
 		AudioBuffer m_input;
+		std::array<std::vector<float>, std::tuple_size_v<TAudioOutputs>> m_nativeOutputScratch;
 
 		size_t m_scaledInputSize = 0;
 

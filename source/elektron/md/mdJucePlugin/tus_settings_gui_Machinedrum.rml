@@ -7,10 +7,10 @@
 	<settingsspacer1/>
 	<div id="btPixelPerfectPanel" class="settings-checkboxwithlabel">
 		<button id="button" class="settings-checkbox"/>
-		<label>Crisp LCD and panel lines (experimental)</label>
+		<label>Crisp LCD and panel lines</label>
 	</div>
 	<settingsspacer1/>
-	<label>Use whole-pixel LCD enlargement and align thin panel lines to pixels. Changes immediately; the LCD may appear smaller with more space around it.</label>
+	<label>Use whole-pixel LCD enlargement with a close-fitting frame and a small, even inner margin. Align thin panel lines to pixels. Changes immediately.</label>
 	<settingsspacer1/>
 	<div id="btLcdRotaryInteraction" class="settings-checkboxwithlabel">
 		<button id="button" class="settings-checkbox"/>

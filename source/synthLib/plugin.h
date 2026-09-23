@@ -4,6 +4,8 @@
 #include <mutex>
 #include <atomic>
 #include <functional>
+#include <optional>
+#include <type_traits>
 #include <tuple>
 #include <utility>
 
@@ -35,11 +37,11 @@ namespace synthLib
 		bool setPreferredDeviceSamplerate(float _samplerate);
 
 		void setHostSamplerate(float _hostSamplerate, float _preferredDeviceSamplerate);
-		void setResamplerMode(Resampler::Mode _mode);
 		float getHostSamplerate() const { return m_hostSamplerate; }
 		float getHostSamplerateInv() const { return m_hostSamplerateInv; }
 
 		void setBlockSize(uint32_t _blockSize);
+		void setActiveOutputChannelCount(uint32_t _channelCount);
 		void reserveMidiEventCapacity(size_t _capacity = RealtimeMidiEventCapacity);
 
 		uint32_t getLatencyMidiToOutput() const;
@@ -77,6 +79,19 @@ namespace synthLib
 		{
 			std::lock_guard lock(m_lock);
 			return std::forward<Callback>(_callback)(m_device);
+		}
+
+		// UI/status polling must never wait behind realtime processing. Returns an
+		// empty optional when the audio thread currently owns the device lock.
+		template<typename Callback, typename Result = std::invoke_result_t<Callback, Device*>>
+		std::optional<Result> tryWithDeviceLocked(Callback&& _callback) const
+		{
+			static_assert(!std::is_void_v<Result>);
+			std::unique_lock lock(m_lock, std::try_to_lock);
+			if(!lock.owns_lock())
+				return std::nullopt;
+			return std::optional<Result>{std::in_place,
+				std::forward<Callback>(_callback)(m_device)};
 		}
 
 #if !SYNTHLIB_DEMO_MODE

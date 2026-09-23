@@ -377,12 +377,6 @@ namespace pluginLib
 			s.write(m_preferredDeviceSamplerate);
 		}
 
-		if(m_resamplerMode != synthLib::Resampler::Mode::Legacy)
-		{
-			baseLib::ChunkWriter cw(s, "RSMP", 1);
-			s.write(static_cast<uint8_t>(m_resamplerMode));
-		}
-
 		m_midiPorts.saveChunkData(s);
 		m_midiRoutingMatrix.saveChunkData(s);
 
@@ -423,11 +417,10 @@ namespace pluginLib
 			setPreferredDeviceSamplerate(sr);
 		});
 
-		_cr.add("RSMP", 1, [this](baseLib::BinaryStream& _binaryStream, uint32_t _version)
+		_cr.add("RSMP", 1, [](baseLib::BinaryStream& _binaryStream, uint32_t _version)
 		{
-			const auto mode = _binaryStream.read<uint8_t>();
-			if(mode < static_cast<uint8_t>(synthLib::Resampler::Mode::Count))
-				setResamplerMode(static_cast<synthLib::Resampler::Mode>(mode));
+			// Retired resampler selection retained as a read-only compatibility chunk.
+			(void)_binaryStream.read<uint8_t>();
 		});
 
 		_cr.add("PROG", 1, [this](baseLib::BinaryStream& _binaryStream, uint32_t _version)
@@ -522,12 +515,6 @@ namespace pluginLib
 		std::vector<float> result;
 		m_device->getPreferredSamplerates(result);
 		return result;
-	}
-
-	void Processor::setResamplerMode(const synthLib::Resampler::Mode _mode)
-	{
-		m_resamplerMode = _mode;
-		getPlugin().setResamplerMode(_mode);
 	}
 
 	std::optional<std::pair<const char*, uint32_t>> Processor::findResource(const BinaryDataRef& _binaryData,	const std::string& _filename)
@@ -670,6 +657,7 @@ namespace pluginLib
 		// initialisation that you need
 		m_hostSamplerate = static_cast<float>(sampleRate);
 
+		getPlugin().setActiveOutputChannelCount(getActiveLogicalOutputChannelCount());
 		getPlugin().setHostSamplerate(static_cast<float>(sampleRate), m_preferredDeviceSamplerate);
 		getPlugin().setBlockSize(samplesPerBlock);
 		getPlugin().reserveMidiEventCapacity(
@@ -995,8 +983,31 @@ namespace pluginLib
 //		AudioProcessor::processBlockBypassed(_buffer, _midiMessages);
 	}
 
+	uint32_t Processor::getActiveLogicalOutputChannelCount() const
+	{
+		uint32_t highest = 0;
+		size_t fallbackChannel = 0;
+		for(int busIndex = 0; busIndex < getBusCount(false); ++busIndex)
+		{
+			const auto* const bus = getBus(false, busIndex);
+			const auto channels = bus && bus->isEnabled()
+				? static_cast<uint32_t>(bus->getNumberOfChannels()) : 0u;
+			const auto logical = static_cast<size_t>(busIndex)
+				< getProperties().logicalOutputBusOffsets.size()
+				? getProperties().logicalOutputBusOffsets[static_cast<size_t>(busIndex)]
+				: fallbackChannel;
+			if(channels)
+				highest = std::max(highest, static_cast<uint32_t>(logical) + channels);
+			if(bus)
+				fallbackChannel += static_cast<size_t>(bus->getNumberOfChannels());
+		}
+		return highest;
+	}
+
 	void Processor::numChannelsChanged()
 	{
+		if(m_plugin)
+			getPlugin().setActiveOutputChannelCount(getActiveLogicalOutputChannelCount());
 		requestLatencyUpdate();
 	}
 

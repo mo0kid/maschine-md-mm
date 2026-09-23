@@ -152,9 +152,6 @@ namespace pluginLib
 		std::vector<float> getDeviceSupportedSamplerates() const;
 		std::vector<float> getDevicePreferredSamplerates() const;
 
-		void setResamplerMode(synthLib::Resampler::Mode _mode);
-		synthLib::Resampler::Mode getResamplerMode() const { return m_resamplerMode; }
-
 		float getHostSamplerate() const { return m_hostSamplerate; }
 		// Arbitrary-size host SysEx uses dynamically sized storage on the audio
 		// callback. This counter makes that exceptional, non-RT-safe path observable;
@@ -252,6 +249,7 @@ namespace pluginLib
 
 	private:
 		void requestLatencyUpdate();
+		uint32_t getActiveLogicalOutputChannelCount() const;
 		void recoverInvalidDevice();
 		void addHostMidiFeedback(const synthLib::SMidiEvent& _event);
 
@@ -262,7 +260,6 @@ namespace pluginLib
 		float m_inputGain = 1.0f;
 		uint32_t m_dspClockPercent = 100;
 		float m_preferredDeviceSamplerate = 0.0f;
-		synthLib::Resampler::Mode m_resamplerMode = synthLib::Resampler::Mode::Legacy;
 		float m_hostSamplerate = 0.0f;
 		MidiPorts m_midiPorts;
 		BypassBuffer m_bypassBuffer;

@@ -140,6 +140,52 @@ namespace mdJucePlugin
 		return g_defaultModel;
 	}
 
+	std::shared_ptr<md::FrontPanelPublisher>
+	AudioPluginAudioProcessor::tryGetFrontPanelPublisher()
+	{
+		auto publisher = getPlugin().tryWithDeviceLocked(
+			[](synthLib::Device* const _device)
+			{
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				return device ? device->getFrontPanelPublisher()
+					: std::shared_ptr<md::FrontPanelPublisher>{};
+			});
+		return publisher ? std::move(*publisher)
+			: std::shared_ptr<md::FrontPanelPublisher>{};
+	}
+
+	uint8_t AudioPluginAudioProcessor::getCurrentPattern()
+	{
+		return dynamic_cast<Controller&>(getController()).getCurrentPattern();
+	}
+
+	uint16_t AudioPluginAudioProcessor::getDrumHitMask()
+	{
+		return dynamic_cast<Controller&>(getController()).getDrumHitMask();
+	}
+
+	uint8_t AudioPluginAudioProcessor::getMidiBaseChannel()
+	{
+		return dynamic_cast<Controller&>(getController()).getAutomationBaseChannel();
+	}
+
+	bool AudioPluginAudioProcessor::sendPanelEvent(const uint8_t _command,
+		const uint8_t _argument)
+	{
+		auto& plugin = getPlugin();
+		auto& diagnostics = plugin.getRealtimeInstrumentation();
+		const auto model = static_cast<uint32_t>(m_model);
+		const auto token = diagnostics.beginPanelInput(model, _command, _argument);
+		const auto accepted = plugin.withDeviceLocked(
+			[&](synthLib::Device* const _device)
+			{
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				return device && device->sendPanelEvent(_command, _argument);
+			});
+		diagnostics.endPanelInput(token, model, _command, _argument, accepted);
+		return accepted;
+	}
+
 	bool AudioPluginAudioProcessor::hasEmbeddedProductResource(const std::string_view _filename)
 	{
 		return pluginLib::Processor::findResource(
@@ -473,7 +519,7 @@ namespace mdJucePlugin
 			{"architecture", "x86"},
 #endif
 			{"pointer_bits", std::to_string(sizeof(void*) * 8)},
-			{"resampler_modes", "0=Legacy,1=MameHq,2=MameLofi"},
+			{"resampler", "libresample"},
 			{"notes", "Nested timings are inclusive. JIT values are counts, not compilation durations. Deadline overruns are estimates, not host xrun reports. MIDI counts contain no payload."}
 		};
 		m_performanceReport->start(m_performanceReportFile.getFullPathName().toStdString(), std::move(context));
@@ -516,34 +562,41 @@ namespace mdJucePlugin
 		md::FactoryFlashSnapshot factoryFlash;
 		std::string cacheError;
 		std::shared_ptr<const md::Device::PreparationContext> preparationContext;
-		getPlugin().withDeviceLocked([&](synthLib::Device* const _device)
-		{
-			auto* const device = dynamic_cast<md::Device*>(_device);
-			if(!device || device->getModel() != md::MachineModel::Machinedrum
-				|| !device->isValid())
-				return;
-			if(device->isProjectStateRestorePending())
+		const auto factoryPoll = getPlugin().tryWithDeviceLocked(
+			[&](synthLib::Device* const _device)
 			{
-				state = State::Waiting;
-				return;
-			}
-			auto& hardware = device->getHardware();
-			if(!hardware.isFactoryFlashInitializationExpected())
-				return;
-			state = hardware.isFactoryFlashReadyForReboot()
-				? State::Ready : State::Waiting;
-			if(state != State::Ready)
-				return;
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				if(!device || device->getModel() != md::MachineModel::Machinedrum
+					|| !device->isValid())
+					return true;
+				if(device->isProjectStateRestorePending())
+				{
+					state = State::Waiting;
+					return true;
+				}
+				auto& hardware = device->getHardware();
+				if(!hardware.isFactoryFlashInitializationExpected())
+					return true;
+				state = hardware.isFactoryFlashReadyForReboot()
+					? State::Ready : State::Waiting;
+				if(state != State::Ready)
+					return true;
 
-			liveDevice = device;
-			liveEpoch = device->hardwareEpoch();
-			preparationContext = device->getPreparationContext();
-			if(hardware.isFactoryFlashCacheReady())
-				(void)device->captureFactoryFlashCachePersistence(cacheFilename,
-					factoryFlash, cacheError);
-			if(!device->getState(originalState, synthLib::StateTypeGlobal))
-				state = State::Waiting;
-		});
+				liveDevice = device;
+				liveEpoch = device->hardwareEpoch();
+				preparationContext = device->getPreparationContext();
+				if(hardware.isFactoryFlashCacheReady())
+					(void)device->captureFactoryFlashCachePersistence(cacheFilename,
+						factoryFlash, cacheError);
+				if(!device->getState(originalState, synthLib::StateTypeGlobal))
+					state = State::Waiting;
+				return true;
+			});
+		if(!factoryPoll)
+		{
+			startTimer(250);
+			return false;
+		}
 
 		if(state == State::NotNeeded)
 		{
@@ -613,15 +666,19 @@ namespace mdJucePlugin
 		uint64_t liveEpoch = 0;
 		uint64_t generation = 0;
 		std::unique_ptr<md::Device::PreparedState> validated;
-		getPlugin().withDeviceLocked([&](synthLib::Device* const _device)
-		{
-			auto* const device = dynamic_cast<md::Device*>(_device);
-			if(!device || device->getModel() != md::MachineModel::Machinedrum)
-				return;
-			liveDevice = device;
-			liveEpoch = device->hardwareEpoch();
-			validated = device->takeFinishedDeferredState(generation);
-		});
+		const auto deferredPoll = getPlugin().tryWithDeviceLocked(
+			[&](synthLib::Device* const _device)
+			{
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				if(!device || device->getModel() != md::MachineModel::Machinedrum)
+					return true;
+				liveDevice = device;
+				liveEpoch = device->hardwareEpoch();
+				validated = device->takeFinishedDeferredState(generation);
+				return true;
+			});
+		if(!deferredPoll)
+			return false;
 		if(!validated)
 			return false;
 
@@ -687,15 +744,19 @@ namespace mdJucePlugin
 	{
 		uint64_t generation = 0;
 		std::string error;
-		getPlugin().withDeviceLocked([&](synthLib::Device* const _device)
-		{
-			auto* const device = dynamic_cast<md::Device*>(_device);
-			if(!device || device->projectStateRestoreStatus()
-				!= md::Device::ProjectStateRestoreStatus::Failed)
-				return;
-			generation = device->deferredStateGeneration();
-			error = device->projectStateRestoreError();
-		});
+		const auto failurePoll = getPlugin().tryWithDeviceLocked(
+			[&](synthLib::Device* const _device)
+			{
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				if(!device || device->projectStateRestoreStatus()
+					!= md::Device::ProjectStateRestoreStatus::Failed)
+					return true;
+				generation = device->deferredStateGeneration();
+				error = device->projectStateRestoreError();
+				return true;
+			});
+		if(!failurePoll)
+			return false;
 		if(error.empty() || generation == m_reportedRestoreFailureGeneration)
 			return false;
 		m_reportedRestoreFailureGeneration = generation;
@@ -751,18 +812,22 @@ namespace mdJucePlugin
 		uint32_t pixels = 0;
 		uint32_t panelBytes = 0;
 		uint32_t tileWrites = 0;
-		getPlugin().withDeviceLocked([&](synthLib::Device* const _device)
-		{
-			auto* const device = dynamic_cast<md::Device*>(_device);
-			if(!device)
-				return;
-			const auto panel = device->getHardware().getFrontPanelSnapshot();
-			cycles = device->getHardware().hostCurrentCycle();
-			epoch = device->hardwareEpoch();
-			pixels = panel.countLitPixels();
-			panelBytes = panel.getByteCount();
-			tileWrites = panel.getTileWriteCount();
-		});
+		const auto diagnosticsPoll = getPlugin().tryWithDeviceLocked(
+			[&](synthLib::Device* const _device)
+			{
+				auto* const device = dynamic_cast<md::Device*>(_device);
+				if(!device)
+					return true;
+				const auto panel = device->getHardware().getFrontPanelSnapshot();
+				cycles = device->getHardware().hostCurrentCycle();
+				epoch = device->hardwareEpoch();
+				pixels = panel.countLitPixels();
+				panelBytes = panel.getByteCount();
+				tileWrites = panel.getTileWriteCount();
+				return true;
+			});
+		if(!diagnosticsPoll)
+			return;
 
 		juce::String line;
 		line << "ms=" << static_cast<int64_t>(elapsed)

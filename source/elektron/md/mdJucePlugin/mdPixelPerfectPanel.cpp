@@ -89,10 +89,14 @@ namespace mdJucePlugin
 		bool enabled = false;
 		juce::Component::SafePointer<juceRmlUi::RmlComponent> component;
 		Rml::ObserverPtr<Rml::Element> canvas;
+		Rml::ObserverPtr<Rml::Element> surround;
+		Rml::Colourb frameColour{0x0d, 0x0f, 0x0c};
 		std::vector<Rml::ObserverPtr<Rml::Element>> rules;
 
 		~Impl()
 		{
+			if (surround)
+				surround->SetClass("elektronCrispLcd", false);
 			// Also support removing the experiment while the document is alive.
 			for (auto& observer : rules)
 				if (auto* rule = static_cast<PixelPanelRule*>(observer.get()); rule && rule->GetParentNode())
@@ -116,6 +120,17 @@ namespace mdJucePlugin
 		state.enabled = _enabled;
 		state.component = &_component;
 		state.canvas = _canvas ? _canvas->GetObserverPtr(_canvas->GetCoreInstance()) : nullptr;
+		auto* surround = _canvas ? _canvas->GetParentNode() : nullptr;
+		if (state.surround.get() != surround)
+		{
+			if (state.surround)
+				state.surround->SetClass("elektronCrispLcd", false);
+			state.surround = surround ? surround->GetObserverPtr(surround->GetCoreInstance()) : nullptr;
+			if (surround)
+				state.frameColour = surround->GetComputedValues().border_top_color();
+		}
+		if (surround)
+			surround->SetClass("elektronCrispLcd", _enabled);
 		if (_canvas)
 			_canvas->setPixelAligned(_enabled);
 
@@ -154,7 +169,7 @@ namespace mdJucePlugin
 		_component.enqueueUpdate();
 	}
 
-	bool PixelPerfectPanel::paintLcd(const juce::Image& _lcd, juce::Graphics& _graphics) const
+	bool PixelPerfectPanel::paintLcd(const juce::Image& _lcd, juce::Graphics& _graphics, const juce::Colour _background) const
 	{
 		const auto* canvas = static_cast<juceRmlUi::ElemCanvas*>(m_impl->canvas.get());
 		if (!m_impl->enabled || !canvas || !_lcd.isValid())
@@ -164,11 +179,17 @@ namespace mdJucePlugin
 		const auto viewport = lcdInteraction::Viewport::create(
 			size.x, size.y, size.x, size.y, true);
 		const auto content = viewport.contentInPaintSpace();
+		const juce::Rectangle<float> lcdBounds(
+			static_cast<float>(content.x), static_cast<float>(content.y),
+			static_cast<float>(content.width), static_cast<float>(content.height));
+		const auto colour = m_impl->frameColour;
+		_graphics.setColour(juce::Colour(colour.red, colour.green, colour.blue, colour.alpha));
+		_graphics.fillRect(lcdBounds.expanded(lcdInteraction::Viewport::crispInset));
+		_graphics.setColour(_background);
+		_graphics.fillRect(lcdBounds.expanded(lcdInteraction::Viewport::crispPadding));
 		// Fit the visible canvas, not its possibly larger power-of-two texture.
 		// The hit tester consumes this same rectangle and snapping policy.
-		_graphics.drawImage(_lcd, juce::Rectangle<float>(
-			static_cast<float>(content.x), static_cast<float>(content.y),
-			static_cast<float>(content.width), static_cast<float>(content.height)));
+		_graphics.drawImage(_lcd, lcdBounds);
 		return true;
 	}
 

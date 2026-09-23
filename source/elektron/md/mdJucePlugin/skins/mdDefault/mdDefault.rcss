@@ -294,6 +294,13 @@ body
 	border: 3dp #67463c;
 }
 
+.mdLcd.elektronCrispLcd
+{
+	/* Keep the layout anchor; the canvas draws a tight, pixel-aligned bezel. */
+	background-color: transparent;
+	border-color: transparent;
+}
+
 /* Buttons, navigation, and transport. */
 
 .mdFunctionButton, .mdYesNo, .mdStop

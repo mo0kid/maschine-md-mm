@@ -6,6 +6,7 @@ option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_VST3 "Build VST3 version of Juce p
 option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_CLAP "Build CLAP version of Juce plugins" on)
 option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_LV2 "Build LV2 version of Juce plugins" off)
 option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_AU "Build AU version of Juce plugins" on)
+option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_AAX "Build AAX version of Juce plugins" off)
 option(${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_Standalone "Build Standalone version of Juce plugins" off)
 
 set(USE_CLAP ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_CLAP})
@@ -13,7 +14,9 @@ set(USE_LV2 ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_LV2})
 set(USE_VST2 ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_VST2})
 set(USE_VST3 ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_VST3})
 set(USE_AU ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_AU})
+set(USE_AAX ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_AAX})
 set(USE_Standalone ${${CMAKE_PROJECT_NAME}_BUILD_JUCEPLUGIN_Standalone})
+set(GEARMULATOR_STANDALONE_ICON "${CMAKE_CURRENT_LIST_DIR}/assets/DJW_app_icon.svg")
 
 set(JUCE_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
@@ -39,6 +42,21 @@ if(USE_VST3)
 	list(APPEND plugin_formats VST3)
 	add_custom_target(PluginFormat_VST3)
 	set_property(TARGET PluginFormat_VST3 PROPERTY FOLDER CustomTargets)
+endif()
+
+if(USE_AAX)
+	if(NOT (APPLE OR WIN32))
+		message(FATAL_ERROR "AAX plugins are only supported on macOS and Windows")
+	endif()
+	if(NOT JUCE_GLOBAL_AAX_SDK_PATH)
+		message(FATAL_ERROR
+			"AAX is enabled but JUCE_GLOBAL_AAX_SDK_PATH is not set. "
+			"Point it at the AAX SDK directory containing Interfaces/ACF.")
+	endif()
+	list(APPEND juce_formats AAX)
+	list(APPEND plugin_formats AAX)
+	add_custom_target(PluginFormat_AAX)
+	set_property(TARGET PluginFormat_AAX PROPERTY FOLDER CustomTargets)
 endif()
 
 if(USE_LV2)
@@ -77,6 +95,8 @@ target_link_libraries(juce_plugin_modules PRIVATE
 )
 
 target_compile_definitions(juce_plugin_modules PUBLIC
+	JUCE_DISPLAY_SPLASH_SCREEN=0
+	JUCE_REPORT_APP_USAGE=0
 	JUCE_WEB_BROWSER=0  # If you remove this, add `NEEDS_WEB_BROWSER TRUE` to the `juce_add_plugin` call
 	JUCE_USE_CURL=0     # If you remove this, add `NEEDS_CURL TRUE` to the `juce_add_plugin` call
 	JUCE_VST3_CAN_REPLACE_VST2=0
@@ -124,12 +144,21 @@ endmacro()
 
 macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProject synthLibProject)
 	string(REPLACE " " "" productNameIdentifier "${productName}")
+	# The combined app has a new public name but retains its permission identity.
+	set(productBundleIdentifier "local.gearmulator.preview.${productNameIdentifier}")
+	set(productWebsite "https://dsp56300.wordpress.com")
+	if("${targetName}" MATCHES "^(md|mm|mdmm)JucePlugin$")
+		set(productWebsite "https://github.com/mo0kid/maschine-md-mm")
+	endif()
+	if("${targetName}" STREQUAL "mdmmJucePlugin")
+		set(productBundleIdentifier "local.gearmulator.preview.GearmulatorMD-MM")
+	endif()
 	juce_add_plugin(${targetName}
 		# VERSION ...                                     # Set this if the plugin version is different to the project version
 		# ICON_BIG ...                                    # ICON_* arguments specify a path to an image file to use as an icon for the Standalone
-		# ICON_SMALL ...
+		ICON_BIG "${GEARMULATOR_STANDALONE_ICON}"
 		COMPANY_NAME "Gearmulator Preview"                 # Specify the name of the plugin's author
-		COMPANY_WEBSITE "https://dsp56300.wordpress.com"
+		COMPANY_WEBSITE "${productWebsite}"
 		IS_SYNTH ${isSynth}                               # Is this a synth or an effect?
 		NEEDS_MIDI_INPUT TRUE                             # Does the plugin need midi input?
 		NEEDS_MIDI_OUTPUT TRUE                            # Does the plugin need midi output?
@@ -137,7 +166,7 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 		EDITOR_WANTS_KEYBOARD_FOCUS TRUE                  # Does the editor need keyboard focus?
 		COPY_PLUGIN_AFTER_BUILD FALSE                     # Should the plugin be installed to a default location after building?
 		MICROPHONE_PERMISSION_ENABLED TRUE               # Standalone exposes the physical stereo input
-		MICROPHONE_PERMISSION_TEXT "Gearmulator uses audio input for processing external instruments."
+		MICROPHONE_PERMISSION_TEXT "${productName} uses audio input for processing external instruments."
 		PLUGIN_MANUFACTURER_CODE GmPv                     # A four-character manufacturer id with at least one upper-case character
 		PLUGIN_CODE ${plugin4CC}                          # A unique four-character plugin id with exactly one upper-case character
 		PRODUCTS_FOLDER "${GEARMULATOR_JUCE_PRODUCTS_ROOT}/$<CONFIG>"
@@ -146,7 +175,7 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 		PRODUCT_NAME ${productName}                       # The name of the final executable, which can differ from the target name
 		VST3_AUTO_MANIFEST TRUE                           # While generating a moduleinfo.json is nice, Juce does not properly package using cpack on Win/Linux
 		                                                  # and completely fails on Linux if we change the suffix to .vst3, so we skip that completely for now
-		BUNDLE_ID "local.gearmulator.preview.${productNameIdentifier}"
+		BUNDLE_ID "${productBundleIdentifier}"
 		LV2URI "http://theusualsuspects.lv2/${productNameIdentifier}"
 	)
 
@@ -205,8 +234,8 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 		clap_juce_extensions_plugin(TARGET ${targetName}
 			CLAP_ID "com.theusualsuspects.${plugin4CC}"
 			CLAP_FEATURES ${clapFeatures}
-			CLAP_SUPPORT_URL "https://dsp56300.wordpress.com"
-			CLAP_MANUAL_URL "https://dsp56300.wordpress.com"
+			CLAP_SUPPORT_URL "${productWebsite}"
+			CLAP_MANUAL_URL "${productWebsite}"
 			CLAP_USE_JUCE_PARAMETER_RANGES "DISCRETE"
 			)
 		set_property(TARGET ${targetName}_CLAP PROPERTY FOLDER ${targetName})
@@ -250,6 +279,12 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 		if(USE_AU AND APPLE)
 			install(TARGETS ${targetName}_AU DESTINATION . COMPONENT ${productName}-AU)
 			installMacSetupScript(. ${productName}-AU)
+		endif()
+		if(USE_AAX)
+			install(TARGETS ${targetName}_AAX DESTINATION . COMPONENT ${productName}-AAX)
+			if(APPLE)
+				installMacSetupScript(. ${productName}-AAX)
+			endif()
 		endif()
 		if(USE_CLAP)
 			install(TARGETS ${targetName}_CLAP DESTINATION . COMPONENT ${productName}-CLAP)
@@ -300,6 +335,9 @@ macro(createJucePlugin targetName productName isSynth plugin4CC binaryDataProjec
 
 	if(USE_Standalone)
 		add_dependencies(PluginFormat_Standalone ${targetName}_Standalone)
+	endif()
+	if(USE_AAX)
+		add_dependencies(PluginFormat_AAX ${targetName}_AAX)
 	endif()
 
 	if(USE_VST2)

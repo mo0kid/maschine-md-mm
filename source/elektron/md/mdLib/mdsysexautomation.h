@@ -3,6 +3,7 @@
 #include "mdautomation.h"
 
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -44,6 +45,7 @@ namespace md::automation::sysex
 	{
 		uint8_t slot;
 		uint8_t baseChannel;
+		std::array<uint8_t, 128> drumNoteMap{};
 	};
 
 	struct KitDump

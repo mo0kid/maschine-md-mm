@@ -222,12 +222,19 @@ namespace mdJucePlugin
 		for(size_t position = headerSize; position < _snapshot.size();
 			position += entrySize)
 		{
-			const auto pending = complete || version == 1
+			const Address address{_snapshot[position], _snapshot[position + 1],
+				_snapshot[position + 2]};
+			// The restored machine image and its selected Kit already own clean
+			// parameters. Replaying every value from a complete AUTO snapshot here
+			// can overwrite the restored Kit until a pattern change reloads it.
+			// Mute is session state absent from Kit dumps.
+			const auto mutePage = m_model == md::MachineModel::Monomachine
+				? md::automation::monomachine::Mute
+				: md::automation::machinedrum::Mute;
+			const auto pending = version == 1 || address.page == mutePage
 				|| (_snapshot[position + 4] & g_snapshotEntryPending) != 0;
 			if(!pending)
 				continue;
-			const Address address{_snapshot[position], _snapshot[position + 1],
-				_snapshot[position + 2]};
 			const auto& parameters = findSynthParam(_snapshot[position + 1],
 				_snapshot[position], _snapshot[position + 2]);
 			if(parameters.empty())
@@ -260,6 +267,10 @@ namespace mdJucePlugin
 		m_haveGlobal.store(false, std::memory_order_release);
 		m_haveKit.store(false, std::memory_order_release);
 		m_currentGlobal.store(0xff, std::memory_order_release);
+		m_currentPattern.store(0xff, std::memory_order_release);
+		m_drumNoteMap.fill(0xff);
+		for(auto& until : m_drumHitUntil) until.store(0, std::memory_order_relaxed);
+		m_lastPatternStatusRequestMs.store(0, std::memory_order_release);
 		// Retain the selected Kit identity. A request for the same slot returns the
 		// stored Kit, not its unsaved live edit buffer, so applying it would roll
 		// back host/front-panel changes already observed in this session.
@@ -323,6 +334,15 @@ namespace mdJucePlugin
 			m_kitSynchronization.statusRequestSent(now);
 			sendSynchronizationRequest(toPluginSysex(md::automation::sysex::statusRequest(m_model,
 				md::automation::sysex::StatusParameter::Kit)));
+		}
+		const auto lastPatternRequest = m_lastPatternStatusRequestMs.load(
+			std::memory_order_acquire);
+		if(now - lastPatternRequest >= 500)
+		{
+			m_lastPatternStatusRequestMs.store(now, std::memory_order_release);
+			sendSynchronizationRequest(toPluginSysex(
+				md::automation::sysex::statusRequest(m_model,
+					md::automation::sysex::StatusParameter::Pattern)));
 		}
 	}
 
@@ -389,6 +409,10 @@ namespace mdJucePlugin
 					md::automation::sysex::statusRequest(m_model,
 						md::automation::sysex::StatusParameter::Kit)));
 			}
+			m_lastPatternStatusRequestMs.store(now, std::memory_order_release);
+			sendSynchronizationRequest(toPluginSysex(
+				md::automation::sysex::statusRequest(m_model,
+					md::automation::sysex::StatusParameter::Pattern)));
 			return;
 		}
 		sendMissingSynchronizationRequests();
@@ -841,6 +865,7 @@ namespace mdJucePlugin
 				return true;
 			}
 			case md::automation::sysex::StatusParameter::Pattern:
+				m_currentPattern.store(status->value, std::memory_order_release);
 				return true;
 			}
 		}
@@ -856,6 +881,7 @@ namespace mdJucePlugin
 			m_automationReady.store(false, std::memory_order_release);
 			m_synchronizationEpoch.fetch_add(1, std::memory_order_acq_rel);
 			m_baseChannel.store(global->baseChannel, std::memory_order_release);
+			m_drumNoteMap = global->drumNoteMap;
 			m_haveGlobal.store(true, std::memory_order_release);
 			completeSynchronizationIfReady();
 			return true;
@@ -902,6 +928,8 @@ namespace mdJucePlugin
 			else if(status->parameter == md::automation::sysex::StatusParameter::Kit
 				|| status->parameter == md::automation::sysex::StatusParameter::Pattern)
 			{
+				if(status->parameter == md::automation::sysex::StatusParameter::Pattern)
+					m_currentPattern.store(status->value, std::memory_order_release);
 				requestKitState();
 			}
 		}
@@ -931,6 +959,17 @@ namespace mdJucePlugin
 	bool Controller::parseMidiMessage(const synthLib::SMidiEvent& _event)
 	{
 		const std::lock_guard synchronizationLock(m_synchronizationLock);
+		// Observe, but never consume or modify, the firmware's outgoing trigs.
+		// They retain hits hidden by the selected drum's permanently lit lamp.
+		if(m_model == md::MachineModel::Machinedrum
+			&& _event.source == synthLib::MidiEventSource::Device && _event.sysex.empty()
+			&& (_event.a & 0xf0) == 0x90 && _event.c > 0 && _event.b < 128
+			&& (_event.a & 0x0f) == getAutomationBaseChannel() && m_haveGlobal.load())
+		{
+			const auto track = m_drumNoteMap[_event.b];
+			if(track < m_drumHitUntil.size())
+				m_drumHitUntil[track].store(milliseconds() + 120, std::memory_order_release);
+		}
 		const auto handled = pluginLib::Controller::parseMidiMessage(_event);
 		// Device-origin Program Change is outgoing firmware MIDI (for example from
 		// an MM MIDI machine), not an instruction selecting the plug-in's Kit.
@@ -938,5 +977,14 @@ namespace mdJucePlugin
 			&& _event.sysex.empty() && (_event.a & 0xf0) == 0xc0)
 			requestKitState();
 		return handled;
+	}
+
+	uint16_t Controller::getDrumHitMask() const
+	{
+		const auto now = milliseconds();
+		uint16_t result = 0;
+		for(size_t track = 0; track < m_drumHitUntil.size(); ++track)
+			if(now < m_drumHitUntil[track].load(std::memory_order_acquire)) result |= 1u << track;
+		return result;
 	}
 }

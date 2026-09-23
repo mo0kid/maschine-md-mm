@@ -93,7 +93,7 @@ namespace mdJucePlugin
 
 		void timerCallback(int _timerId) override;
 
-		std::shared_ptr<md::FrontPanelPublisher> getFrontPanelPublisher() const;
+		std::shared_ptr<md::FrontPanelPublisher> getFrontPanelPublisher();
 		bool sendPanelEvent(uint8_t _command, uint8_t _argument) const;
 		bool refreshFrontPanelState(double _nowMilliseconds);
 		md::MachineModel getModel() const;
@@ -170,6 +170,7 @@ namespace mdJucePlugin
 		const md::MachineModel m_model;
 		juceRmlUi::ElemCanvas* m_lcdCanvas = nullptr;
 		std::unique_ptr<PixelPerfectPanel> m_pixelPerfectPanel;
+		std::shared_ptr<md::FrontPanelPublisher> m_frontPanelPublisher;
 		md::FrontPanel m_frontPanelSnapshot;
 		bool m_frontPanelSnapshotValid = false;
 		bool m_lcdChanged = true;

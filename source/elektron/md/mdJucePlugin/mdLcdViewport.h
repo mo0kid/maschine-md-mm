@@ -26,6 +26,11 @@ namespace mdJucePlugin::lcdInteraction
 	class Viewport
 	{
 	public:
+		// A narrow physical-pixel bezel travels with the integer-sized LCD.
+		static constexpr int crispFrameWidth = 2;
+		static constexpr int crispPadding = 4;
+		static constexpr int crispInset = crispFrameWidth + crispPadding;
+
 		static Viewport create(double _displayWidth, double _displayHeight,
 			double _paintWidth, double _paintHeight, bool _integerScale)
 		{
@@ -34,8 +39,9 @@ namespace mdJucePlugin::lcdInteraction
 			result.m_displayHeight = std::max(0.0, _displayHeight);
 			result.m_paintWidth = std::max(0.0, _paintWidth);
 			result.m_paintHeight = std::max(0.0, _paintHeight);
-			auto scale = std::min(result.m_paintWidth / 128.0,
-				result.m_paintHeight / 64.0);
+			const auto inset = _integerScale ? crispInset : 0;
+			auto scale = std::max(0.0, std::min((result.m_paintWidth - 2 * inset) / 128.0,
+				(result.m_paintHeight - 2 * inset) / 64.0));
 			if(_integerScale && scale >= 1.0)
 				scale = std::floor(scale);
 			result.m_content.width = 128.0 * scale;

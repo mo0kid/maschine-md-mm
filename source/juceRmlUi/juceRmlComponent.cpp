@@ -442,25 +442,46 @@ namespace juceRmlUi
 		m_renderDone = true;
 	}
 
-	void RmlComponent::renderMetal(MetalContext& _context)
+	bool RmlComponent::renderMetal(MetalContext& _context)
 	{
-		// Skip frame if there's nothing to render — keeps the last presented
-		// drawable visible instead of flashing black during rate limiting.
-		if (!m_renderProxy->hasRenderFunctions())
-			return;
-
 		RmlInterfaces::ScopedAccess access(*this);
 
+		// No queued frame means there is nothing for Metal to consume. This can
+		// happen for an extra repaint notification and is not a retry condition.
+		// Check only after taking ScopedAccess so this cannot race an update that
+		// is still constructing the frame and leave m_renderDone permanently false.
+		if (!m_renderProxy->hasRenderFunctions())
+		{
+			m_renderDone = true;
+			return true;
+		}
+
 		if (!m_rmlContext || !m_renderInterface)
-			return;
+		{
+			m_renderDone = true;
+			return true;
+		}
 
 		auto* metal = dynamic_cast<RenderInterface_Metal*>(m_renderInterface.get());
-		if (!metal) return;
+		if (!metal)
+		{
+			m_renderDone = true;
+			return true;
+		}
 
 		const auto size = getRenderSize();
-		if (size.x <= 0 || size.y <= 0) return;
+		if (size.x <= 0 || size.y <= 0)
+			return false;
+
 		auto* drawable = _context.nextDrawable();
-		if (!drawable) return;
+		if (!drawable)
+		{
+			// Keep the queued frame and m_renderDone gate intact. MetalContext will
+			// retry this same frame at a bounded cadence. This is important during
+			// occlusion, display changes, and other moments where CAMetalLayer can
+			// transiently have no drawable available.
+			return false;
+		}
 
 		metal->SetViewport(size.x, size.y);
 		metal->BeginFrame(drawable);
@@ -498,6 +519,7 @@ namespace juceRmlUi
 		}
 
 		m_renderDone = true;
+		return true;
 	}
 
 	void RmlComponent::metalContextClosing(MetalContext&)

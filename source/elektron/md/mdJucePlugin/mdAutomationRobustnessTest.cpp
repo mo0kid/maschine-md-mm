@@ -74,6 +74,32 @@ namespace mdJucePlugin
 		{
 			_controller.m_syntheticFirmwareReadyForTests = true;
 		}
+		static void verifyDrumDisplayActivity(Controller& controller)
+		{
+			if(controller.m_model != md::MachineModel::Machinedrum) return;
+			controller.m_drumNoteMap.fill(0xff);
+			controller.m_drumNoteMap[60] = 9;
+			controller.m_drumNoteMap[61] = 0;
+			controller.m_baseChannel.store(3);
+			controller.m_haveGlobal.store(true);
+			const auto send = [&](synthLib::MidiEventSource source, uint8_t channel, uint8_t note, uint8_t velocity) {
+				synthLib::SMidiEvent event(source);
+				event.a = 0x90 | channel; event.b = note; event.c = velocity;
+				controller.parseMidiMessage(event);
+			};
+			using Source = synthLib::MidiEventSource;
+			send(Source::Host, 3, 60, 100);
+			send(Source::Device, 2, 60, 100);
+			send(Source::Device, 3, 60, 0);
+			send(Source::Device, 3, 62, 100);
+			mdAutomationTest::require(controller.getDrumHitMask() == 0, "non-trigger MIDI flashed a drum label");
+			send(Source::Device, 3, 60, 100);
+			mdAutomationTest::require(controller.getDrumHitMask() == (1u << 9), "remapped firmware hit did not reach LCD activity");
+			send(Source::Device, 3, 61, 100);
+			mdAutomationTest::require(controller.getDrumHitMask() == ((1u << 9) | 1), "simultaneous drum hits were lost");
+			for(auto& until : controller.m_drumHitUntil) until.store(1);
+			mdAutomationTest::require(controller.getDrumHitMask() == 0, "expired drum hits stayed red");
+		}
 	};
 }
 
@@ -212,6 +238,8 @@ namespace
 				&& restored[position + 2] == description.index)
 			{
 				restored[position + 3] = desired;
+				if(entrySize == 5)
+					restored[position + 4] = 1; // Explicit undelivered host intent.
 				changed = true;
 				break;
 			}
@@ -1014,12 +1042,60 @@ namespace
 		return true;
 	}
 
+	void verifyCleanLfoRestoreUsesFirmwareKit()
+	{
+		Harness harness(md::MachineModel::Monomachine);
+		mdJucePlugin::ControllerAutomationTestAccess::useSyntheticFirmware(
+			harness.controller);
+		primeSyntheticSnapshot(harness, 23);
+		pluginLib::Parameter* lfo = nullptr;
+		for(auto* parameter : parameters(harness, false))
+			if(parameter->getDescription().page == md::automation::monomachine::Lfo1)
+			{
+				lfo = parameter;
+				break;
+			}
+		require(lfo != nullptr, "MM LFO parameter unavailable");
+		auto saved = harness.controller.createAutomationSnapshot();
+		require(snapshotIsComplete(saved), "MM startup fixture lacks a complete snapshot");
+		const auto& description = lfo->getDescription();
+		bool found = false;
+		for(size_t position = 7; position + 4 < saved.size(); position += 5)
+			if(saved[position] == description.page
+				&& saved[position + 1] == lfo->getPart()
+				&& saved[position + 2] == description.index)
+			{
+				saved[position + 3] = 91; // Stale value from an old Kit.
+				saved[position + 4] = 0; // Firmware owned, no pending host edit.
+				found = true;
+				break;
+			}
+		require(found && harness.controller.restoreAutomationSnapshot(saved),
+			"MM complete snapshot restore rejected");
+		harness.controller.onStateLoaded();
+		harness.controller.parseSysexMessage(statusResponse(harness.model,
+			md::automation::sysex::StatusParameter::Global, 0),
+			synthLib::MidiEventSource::Device);
+		harness.controller.parseSysexMessage(statusResponse(harness.model,
+			md::automation::sysex::StatusParameter::Kit, 0),
+			synthLib::MidiEventSource::Device);
+		harness.controller.parseSysexMessage(makeGlobalDump(harness.model, 0, 0),
+			synthLib::MidiEventSource::Device);
+		harness.controller.parseSysexMessage(makeKitDump(harness.model, 0, 41),
+			synthLib::MidiEventSource::Device);
+		require(lfo->getUnnormalizedValue() == 41,
+			"startup replayed a stale LFO value over the restored Kit");
+	}
+
 	void verifyArchitecture(const md::MachineModel _model)
 	{
+		if(_model == md::MachineModel::Monomachine)
+			verifyCleanLfoRestoreUsesFirmwareKit();
 		verifyPendingStateBeforeSynchronization(_model);
 		Harness harness(_model);
 		mdJucePlugin::ControllerAutomationTestAccess::useSyntheticFirmware(
 			harness.controller);
+		mdJucePlugin::ControllerAutomationTestAccess::verifyDrumDisplayActivity(harness.controller);
 		primeSyntheticSnapshot(harness);
 		verifyStateLoadReplacesSameSlotBaseline(harness);
 		verifyMuteOwnership(harness);

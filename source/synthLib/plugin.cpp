@@ -79,13 +79,6 @@ namespace synthLib
 		updateDeviceLatency();
 	}
 
-	void Plugin::setResamplerMode(const Resampler::Mode _mode)
-	{
-		std::lock_guard lock(m_lock);
-		m_resampler.setResamplerMode(_mode);
-		updateDeviceLatency();
-	}
-
 	void Plugin::reserveMidiEventCapacity(const size_t _capacity)
 	{
 		std::lock_guard lock(m_lock);
@@ -143,7 +136,7 @@ namespace synthLib
 
 		if(instrument)
 			RealtimeInstrumentation::setCurrentDeviceContext(static_cast<uint32_t>(m_deviceSamplerate),
-				static_cast<uint32_t>(m_resampler.getResamplerMode()), m_device->getDspClockPercent());
+				0, m_device->getDspClockPercent());
 		const auto midiOutBegin = m_midiOut.size();
 		const auto resamplerStart = instrument ? nowNanoseconds() : 0;
 		uint64_t deviceProcessNanoseconds = 0;
@@ -412,6 +405,13 @@ namespace synthLib
 		for(size_t channel = 0; channel < m_device->getChannelCountOut(); ++channel)
 			m_discardOutputBuffers[channel].resize(_blockSize);
 		m_resampler.prepare(_blockSize);
+		updateDeviceLatency();
+	}
+
+	void Plugin::setActiveOutputChannelCount(const uint32_t _channelCount)
+	{
+		std::lock_guard lock(m_lock);
+		m_resampler.setActiveOutputChannelCount(std::min(_channelCount, m_device->getChannelCountOut()));
 		updateDeviceLatency();
 	}
 

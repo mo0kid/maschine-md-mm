@@ -94,7 +94,7 @@ def release_selection(
         "architectures": architectures,
         "cmake_architectures": ";".join(architectures),
         "pgo_mode": pgo_mode,
-        "package_name": f"Gearmulator-Elektron-macOS-{architecture_label}{pgo_suffix}",
+        "package_name": f"Maschine-MD-MM-macOS-{architecture_label}{pgo_suffix}",
     }
 
 

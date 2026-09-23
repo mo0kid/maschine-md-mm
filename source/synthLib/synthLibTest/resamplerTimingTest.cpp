@@ -20,10 +20,9 @@ namespace
 						throw std::runtime_error("48-hour sample conversion rounded incorrectly");
 	}
 
-	void verify(const float rate, const Resampler::Mode mode, const bool variable)
+	void verify(const float rate, const bool variable)
 	{
 		ResamplerInOut resampler(0, 1);
-		resampler.setResamplerMode(mode);
 		resampler.setSamplerates(rate, 44100);
 		resampler.prepare(512);
 		resampler.reserveMidiEventCapacity(1024);
@@ -75,7 +74,7 @@ namespace
 				throw std::runtime_error("native rendering ran ahead of available host MIDI");
 			host += size;
 		}
-		std::cout << "rate=" << rate << " mode=" << int(mode) << " variable=" << variable
+		std::cout << "rate=" << rate << " variable=" << variable
 			<< " sent=" << expected.size() << " received=" << delivered.size();
 		if(expected != delivered)
 		{
@@ -91,10 +90,9 @@ namespace
 			throw std::runtime_error("MIDI output lost its native chunk origin or latency");
 	}
 
-	void impulses(float rate, Resampler::Mode mode, bool variable)
+	void impulses(float rate, bool variable)
 	{
 		ResamplerInOut resampler(1, 2);
-		resampler.setResamplerMode(mode);
 		resampler.setSamplerates(rate, 44100);
 		resampler.prepare(512);
 		std::array<float, 512> input{}, note{}, thru{};
@@ -135,7 +133,7 @@ namespace
 		}
 		const auto midiLatency = resampler.getOutputLatency();
 		const auto audioLatency = midiLatency + resampler.getInputLatency();
-		std::cout << "impulse rate=" << rate << " mode=" << int(mode) << " variable=" << variable
+		std::cout << "impulse rate=" << rate << " variable=" << variable
 			<< " reported_midi=" << midiLatency << " reported_audio=" << audioLatency;
 		bool valid = true;
 		for(auto position : positions)
@@ -162,12 +160,10 @@ int main()
 	bool failed = false;
 	try { clockConversion(); }
 	catch(const std::exception& error) { std::cerr << error.what() << '\n'; failed = true; }
-	for(auto mode : {synthLib::Resampler::Mode::Legacy, synthLib::Resampler::Mode::MameHq,
-		synthLib::Resampler::Mode::MameLofi})
-		for(float rate : {8000.0f, 11025.0f, 16000.0f, 22050.0f, 32000.0f,
-			44100.0f, 48000.0f, 88200.0f, 96000.0f, 176400.0f, 192000.0f})
-			for(bool variable : {false, true})
-				try { verify(rate, mode, variable); impulses(rate, mode, variable); }
-				catch(const std::exception& error) { std::cerr << error.what() << '\n'; failed = true; }
+	for(float rate : {8000.0f, 11025.0f, 16000.0f, 22050.0f, 32000.0f,
+		44100.0f, 48000.0f, 88200.0f, 96000.0f, 176400.0f, 192000.0f})
+		for(bool variable : {false, true})
+			try { verify(rate, variable); impulses(rate, variable); }
+			catch(const std::exception& error) { std::cerr << error.what() << '\n'; failed = true; }
 	return failed ? 1 : 0;
 }

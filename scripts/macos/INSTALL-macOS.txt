@@ -1,5 +1,5 @@
-Gearmulator MD/MM for macOS
-===========================
+Maschine MD-MM for macOS
+=======================
 
 This alpha is ad-hoc signed and is not notarized by Apple. macOS may quarantine
 the applications, VST3 plug-ins, and Audio Units when you download them.
@@ -9,7 +9,8 @@ Installation
 
 1. Fully extract the downloaded ZIP archive.
 2. Double-click macsetup_Gearmulator-Elektron.command in the extracted folder.
-   Terminal will open, prepare both products, and print "Done" when successful.
+   Terminal will open, prepare the included apps and plug-ins, and print "Done"
+   when successful.
 3. Copy the VST3 plug-ins you want to use to:
 
        ~/Library/Audio/Plug-Ins/VST3
@@ -25,7 +26,7 @@ Installation
 6. Restart your DAW or ask it to rescan plug-ins.
 
 Run the setup command again whenever you install an updated download. The
-command only clears extended attributes from the Gearmulator MD/MM bundles in
+command only clears extended attributes from the included bundles in
 the extracted folder; it does not copy or delete plug-ins.
 
 Firmware is not included. Each application or plug-in will ask you to select a

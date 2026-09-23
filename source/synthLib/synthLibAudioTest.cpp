@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <thread>
 
 #if defined(_MSC_VER)
 #include <malloc.h>
@@ -188,24 +190,17 @@ namespace
 		}
 	};
 
-	void verifyRatesModesAndVariableBlocks()
+	void verifyRatesAndVariableBlocks()
 	{
-		constexpr std::array<synthLib::Resampler::Mode, 3> modes{
-			synthLib::Resampler::Mode::Legacy,
-			synthLib::Resampler::Mode::MameHq,
-			synthLib::Resampler::Mode::MameLofi};
 		constexpr std::array<float, 3> rates{44100.0f, 48000.0f, 96000.0f};
 		constexpr std::array<uint32_t, 8> blockSizes{1, 7, 31, 63, 64, 127, 257, 1024};
 
-		for(const auto mode : modes)
+		for(const auto rate : rates)
 		{
-			for(const auto rate : rates)
-			{
 				auto device = std::make_unique<SyntheticAudioDevice>(2, 6, 19);
 				synthLib::Plugin plugin(device.get(),
 					[](synthLib::Device*) {});
 				plugin.setHostSamplerate(rate, 44100.0f);
-				plugin.setResamplerMode(mode);
 				plugin.setBlockSize(1024);
 				AudioStorage storage;
 				std::array<bool, 6> audible{};
@@ -234,7 +229,6 @@ namespace
 				require(std::all_of(audible.begin(), audible.end(),
 					[](const bool _audible) { return _audible; }),
 					"variable-block processing dropped an output channel");
-			}
 		}
 	}
 
@@ -363,24 +357,50 @@ namespace
 			"core SysEx allocation-capable path was not explicitly accounted");
 	}
 
+	void verifyTryWithDeviceLockedNeverWaits()
+	{
+		auto device = std::make_unique<SyntheticAudioDevice>(2, 2, 0);
+		synthLib::Plugin plugin(device.get(), [](synthLib::Device*) {});
+		std::atomic<bool> lockHeld{false};
+		std::atomic<bool> releaseLock{false};
+
+		std::thread holder([&]
+		{
+			plugin.withDeviceLocked([&](synthLib::Device*)
+			{
+				lockHeld.store(true, std::memory_order_release);
+				while(!releaseLock.load(std::memory_order_acquire))
+					std::this_thread::yield();
+				return true;
+			});
+		});
+		while(!lockHeld.load(std::memory_order_acquire))
+			std::this_thread::yield();
+
+		const auto busyResult = plugin.tryWithDeviceLocked(
+			[](synthLib::Device*) { return 7; });
+		releaseLock.store(true, std::memory_order_release);
+		holder.join();
+		require(!busyResult,
+			"non-blocking device lookup succeeded while the realtime lock was held");
+
+		const auto availableResult = plugin.tryWithDeviceLocked(
+			[](synthLib::Device*) { return 7; });
+		require(availableResult && *availableResult == 7,
+			"non-blocking device lookup failed after the realtime lock was released");
+	}
+
 	void verifyPreparedProcessingDoesNotAllocate()
 	{
-		constexpr std::array<synthLib::Resampler::Mode, 3> modes{
-			synthLib::Resampler::Mode::Legacy,
-			synthLib::Resampler::Mode::MameHq,
-			synthLib::Resampler::Mode::MameLofi};
 		constexpr std::array<float, 3> rates{44100.0f, 48000.0f, 96000.0f};
 		constexpr std::array<uint32_t, 6> blocks{1, 7, 63, 257, 1024, 2048};
 
-		for(const auto mode : modes)
+		for(const auto rate : rates)
 		{
-			for(const auto rate : rates)
-			{
 				auto device = std::make_unique<SyntheticAudioDevice>(2, 6, 0);
 				synthLib::Plugin plugin(device.get(),
 					[](synthLib::Device*) {});
 				plugin.setHostSamplerate(rate, 44100.0f);
-				plugin.setResamplerMode(mode);
 				plugin.setBlockSize(2048);
 				plugin.reserveMidiEventCapacity();
 				AudioStorage storage;
@@ -413,8 +433,7 @@ namespace
 					}
 					g_detectAllocations = false;
 					if(g_detectedAllocationCount != 0)
-						std::cerr << "allocation probe: mode="
-							<< static_cast<int>(mode) << " rate=" << rate
+						std::cerr << "allocation probe: rate=" << rate
 							<< " block=" << block << " allocations="
 							<< g_detectedAllocationCount << '\n';
 					require(g_detectedAllocationCount == 0,
@@ -428,7 +447,6 @@ namespace
 					"oversized host block was not identified as an RT fallback");
 				require(device->receivedDistinctOutputs(),
 					"hidden outputs shared one discard buffer");
-			}
 		}
 	}
 }
@@ -437,12 +455,13 @@ int main()
 {
 	try
 	{
-		verifyRatesModesAndVariableBlocks();
+		verifyRatesAndVariableBlocks();
 		verifyDeviceReplacementReconfiguresAndFlushes();
 		verifyCappedLatencyIsReportedExactly();
 		verifyMissingInputsCannotReadDiscardedOutputs();
 		verifyInvalidDeviceOnlyNotifiesDuringProcess();
 		verifyRealtimeSysexIsExplicitFallback();
+		verifyTryWithDeviceLockedNeverWaits();
 		verifyPreparedProcessingDoesNotAllocate();
 		std::cout << "synthLibAudioTest: PASS\n";
 		return 0;

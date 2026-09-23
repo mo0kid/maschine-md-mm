@@ -268,6 +268,11 @@ namespace
 			|| !check(publisher.tryPublish(panel),
 				"front-panel snapshot was not published"))
 			return false;
+		if(!check(publisher.getLedActivationSequence(0x26, 7) == 1,
+			"non-destructive LED activation edge was not published")
+			|| !check(publisher.getLedDeactivationSequence(0x26, 7) == 2,
+				"non-destructive LED deactivation edge was not published"))
+			return false;
 
 		const auto published = publisher.readPublishedState();
 		std::array<md::FrontPanelLedTransition, 2> transitions;
@@ -297,7 +302,9 @@ namespace
 		return check(publisher.getLedTransitionStatus().epoch == epoch + 1,
 			"LED transition reset did not advance its epoch")
 			&& check(publisher.getLedTransitionStatus().dropped == 0,
-				"LED transition reset retained drop telemetry");
+				"LED transition reset retained drop telemetry")
+			&& check(publisher.getLedDeactivationSequence(0x26, 7) == 0,
+				"LED deactivation edge survived reset");
 	}
 
 	bool testPanelInputReleaseRecovery()

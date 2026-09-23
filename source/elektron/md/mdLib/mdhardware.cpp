@@ -1608,6 +1608,19 @@ namespace md
 
 		schedDrainCodecOutput();					// final drain (also covers a UC-only advance window)
 		advanceFactoryFlashCapture();
+		// Read the OS 1.63 sound-selection index before it is merged into the
+		// native drum lamps. This is display-only; never write firmware memory.
+		// Other firmware images retain the unannotated native-lamp fallback.
+		if(m_model == MachineModel::Machinedrum
+			&& m_firmwareFingerprint == g_mdOs163Fingerprint && isAudioReady())
+		{
+			const auto high = m_uc.read16(0x2818da);
+			const auto track = m_uc.read16(0x2818dc);
+			m_frontPanel.setSelectedMachinedrumTrack(high == 0 && track < 16 ? track : -1);
+			// OS 1.63's live sequencer position, before it is merged into the
+			// one-colour step lamps. Read-only and guarded by the ROM fingerprint.
+			m_frontPanel.setMachinedrumPlaybackStep(m_uc.read8(0x261aa7));
+		}
 		// Never make the emulation/audio thread wait for a UI snapshot read. If the
 		// reader owns the short copy lock, the next machine interval republishes.
 		m_frontPanelPublisher->tryPublish(m_frontPanel);

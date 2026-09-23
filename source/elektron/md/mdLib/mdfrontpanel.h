@@ -130,6 +130,20 @@ namespace md
 		bool getStatusLed(StatusLed _led) const;
 		bool getModeLed(ModeLed _led) const;
 
+		// Optional read-only host annotation. The original one-colour drum
+		// lamps merge selection with activity, so they cannot identify both.
+		int getSelectedMachinedrumTrack() const { return m_selectedMachinedrumTrack; }
+		void setSelectedMachinedrumTrack(int _track)
+		{
+			m_selectedMachinedrumTrack = _track >= 0 && _track < 16 ? _track : -1;
+		}
+
+		int getMachinedrumPlaybackStep() const { return m_machinedrumPlaybackStep; }
+		void setMachinedrumPlaybackStep(int step)
+		{
+			m_machinedrumPlaybackStep = step >= 0 && step < 64 ? step : -1;
+		}
+
 		// Stream diagnostics.
 		uint32_t getByteCount() const { return m_byteCount; }
 		uint32_t getTileWriteCount() const { return m_tileWriteCount; }
@@ -162,6 +176,8 @@ namespace md
 		uint32_t m_byteCount = 0;
 		uint32_t m_tileWriteCount = 0;
 		uint32_t m_ledCommandCount = 0;
+		int m_selectedMachinedrumTrack = -1;
+		int m_machinedrumPlaybackStep = -1;
 	};
 
 	struct FrontPanelLedTransition
@@ -196,6 +212,7 @@ namespace md
 	{
 	public:
 		static constexpr size_t g_ledTransitionCapacity = 2048;
+		FrontPanelPublisher();
 
 		bool tryPublish(const FrontPanel& _panel);
 		bool tryRead(FrontPanel& _panel) const;
@@ -203,6 +220,11 @@ namespace md
 		FrontPanelPublishedState readPublishedState() const;
 		bool tryPushLedTransition(uint8_t _command, uint8_t _value,
 			uint64_t _emulationCycles);
+		// Non-destructive observation for secondary displays/controllers. Returns
+		// the transition sequence of the most recent active-low edge for one LED.
+		uint64_t getLedActivationSequence(uint8_t _command, uint8_t _bit) const;
+		// Non-destructive observation of the active-low LED switching off.
+		uint64_t getLedDeactivationSequence(uint8_t _command, uint8_t _bit) const;
 		size_t drainLedTransitions(FrontPanelLedTransition* _output, size_t _capacity);
 		FrontPanelLedTransitionStatus getLedTransitionStatus() const;
 		void reset();
@@ -217,5 +239,11 @@ namespace md
 		std::atomic<uint64_t> m_ledTransitionDropped{0};
 		std::atomic<uint64_t> m_ledTransitionEpoch{0};
 		std::atomic<uint64_t> m_publishedLedSequence{0};
+		std::array<std::atomic<uint8_t>, FrontPanel::g_ledBankCount>
+			m_lastLedValues{};
+		std::array<std::atomic<uint64_t>, FrontPanel::g_ledBankCount * 8>
+			m_ledActivationSequences{};
+		std::array<std::atomic<uint64_t>, FrontPanel::g_ledBankCount * 8>
+			m_ledDeactivationSequences{};
 	};
 }

@@ -1,7 +1,9 @@
 # Machinedrum / Monomachine SysEx files
 
-To send a user-data SysEx file to the emulated Machinedrum or Monomachine,
-right-click anywhere on the instrument UI and choose **Send SysEx File...**.
+To send a user-data SysEx file in the separate Machinedrum or Monomachine app
+or plug-in, right-click anywhere on its instrument UI and choose
+**Send SysEx File...**. The combined Maschine MD-MM app does not show
+right-click menus, so this file-picker workflow is not available there.
 The context-menu item shows transfer progress when the menu is reopened and
 becomes **Cancel SysEx Transfer...** while a transfer is active. Cancellation
 terminates any partial SysEx message before releasing the emulated MIDI wire.

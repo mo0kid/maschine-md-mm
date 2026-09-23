@@ -9,8 +9,14 @@ if(APPLE)
 	message("CMAKE_GENERATOR: " ${CMAKE_GENERATOR})
 	message("XCODE_VERSION: " ${XCODE_VERSION})
 
-	# Xcode 14+ can not build for anything < High Sierra anymore
-	if(CMAKE_GENERATOR STREQUAL Xcode AND XCODE_VERSION VERSION_GREATER_EQUAL 14.0.0)
+	# Xcode 14+ can not build for anything < High Sierra anymore. Xcode 27
+	# raised the supported deployment floor to macOS 12. Keep the older
+	# minimum for older Xcode versions so existing hosts remain supported.
+	if(CMAKE_GENERATOR STREQUAL Xcode AND XCODE_VERSION VERSION_GREATER_EQUAL 27.0.0)
+		if(NOT CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 12.0)
+			set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum OS X deployment version" FORCE)
+		endif()
+	elseif(CMAKE_GENERATOR STREQUAL Xcode AND XCODE_VERSION VERSION_GREATER_EQUAL 14.0.0)
 		set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version")
 	else()
 		# 10.12 is now the minimum because we use std::shared_mutex in patch manager
@@ -27,7 +33,8 @@ if(NOT CMAKE_GENERATOR_TOOLSET AND CMAKE_GENERATOR MATCHES "Visual Studio 18")
 	set(CMAKE_GENERATOR_TOOLSET "v143")
 endif()
 
-project(gearmulator VERSION 2.2.9)
+# Fork release version. Keep the internal project name for existing build flags.
+project(gearmulator VERSION 0.1.0)
 
 include(base.cmake)
 include(CTest)
@@ -61,13 +68,13 @@ if(NOT DEFINED CPACK_SYSTEM_NAME)
 endif()
 message("CPACK_SYSTEM_NAME: " ${CPACK_SYSTEM_NAME})
 
-set(CPACK_PACKAGE_CONTACT "The Usual Suspects")
-set(CPACK_PACKAGE_VENDOR "The Usual Suspects")
-set(CPACK_PACKAGE_NAME "TheUsualSuspects")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "The Usual Suspects emulated audio plugin")
+set(CPACK_PACKAGE_CONTACT "https://github.com/mo0kid/maschine-md-mm/issues")
+set(CPACK_PACKAGE_VENDOR "mo0kid")
+set(CPACK_PACKAGE_NAME "Maschine-MD-MM")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Machinedrum and Monomachine emulation with Maschine MK3 integration")
 
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "The Usual Suspects")
-set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://dsp56300.wordpress.com")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "mo0kid")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/mo0kid/maschine-md-mm")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 
 set(CPACK_RPM_PACKAGE_AUTOREQ "yes")

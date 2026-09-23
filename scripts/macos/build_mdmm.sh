@@ -115,6 +115,7 @@ source_tuple_before="$(python3 "${script_dir}/write_mdmm_receipt.py" \
 artifact_root="${build_dir}/products/Release"
 md_app="${artifact_root}/Standalone/Gearmulator MD.app"
 mm_app="${artifact_root}/Standalone/Gearmulator MM.app"
+mdmm_app="${artifact_root}/Standalone/Maschine MD-MM.app"
 md_vst3="${artifact_root}/VST3/Gearmulator MD.vst3"
 mm_vst3="${artifact_root}/VST3/Gearmulator MM.vst3"
 md_au="${artifact_root}/AU/Gearmulator MD.component"
@@ -153,8 +154,6 @@ fi
 cmake -S "${source_dir}" -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES="${release_architectures}" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
-  -DXCODE_VERSION="${XCODE_VERSION:-16}" \
   -DGEARMULATOR_MDMM_APPLE_THINLTO=ON \
   -DGEARMULATOR_MDMM_APPLE_OPTIMIZE_DSP=ON \
   "${pgo_cache_args[@]}" \
@@ -193,6 +192,7 @@ cmake --build "${build_dir}" --parallel 4 --target \
   mmJucePlugin_AU \
   mdJucePlugin_Standalone \
   mmJucePlugin_Standalone \
+  mdmmJucePlugin_Standalone \
   pluginTester \
   latency_host \
   baseLibBinaryStreamTest \
@@ -212,6 +212,11 @@ cmake --build "${build_dir}" --parallel 4 --target \
   mdPanelRenderingTest \
   juceRmlMouseInputTest \
   mdFrontPanelPresentationTest \
+  mdCombinedMidiRouterTest \
+  mdMaschineNihiaProtocolTest \
+  mdMaschineScreenRendererTest \
+  mdSectionFirmwareTest \
+  mdRecordFirmwareTest \
   mdFirmwareImageTest \
   mc68kColdFireDivideTest
 
@@ -240,6 +245,9 @@ for test_name in \
   mdPanelRenderingTest \
   juceRmlMouseInputTest \
   mdFrontPanelPresentationTests \
+  mdCombinedMidiRouterTest \
+  mdMaschineNihiaProtocolTest \
+  mdMaschineScreenRendererTest \
   mdAudioQueueTest \
   mdAudioIoLayoutTest \
   mdAudioProbePluginVST3IdentityTest \
@@ -264,6 +272,10 @@ if [[ "${require_firmware_tests}" == "1" ]]; then
     GEARMULATOR_REQUIRE_FIRMWARE_TESTS=1 \
     ctest --test-dir "${build_dir}" -C Release --output-on-failure \
       --no-tests=error --tests-regex '^mdUwFirmwareTest$'
+  GEARMULATOR_MD_FIRMWARE_BIN="${md_firmware_bin}" \
+    GEARMULATOR_MM_FIRMWARE_BIN="${mm_firmware_bin}" \
+    ctest --test-dir "${build_dir}" -C Release --output-on-failure \
+      --no-tests=error --tests-regex '^(mdSectionFirmwareTest|mmSectionFirmwareTest|mmFourSectionFirmwareTest|mdRecordFirmwareTest|mdPadCursorFirmwareTest|mdPadCursor64FirmwareTest|mmRecordFirmwareTest|mmRecordedStepLedsFirmwareTest|mmRecordedStepPagesFirmwareTest|mdLcdDrumFirmwareTest)$'
   GEARMULATOR_MD_FIRMWARE_BIN="${md_firmware_bin}" \
     GEARMULATOR_MM_FIRMWARE_BIN="${mm_firmware_bin}" \
     ctest --test-dir "${build_dir}" -C Release --output-on-failure \
@@ -396,7 +408,7 @@ plutil -lint "${md_au}/Contents/Info.plist" "${mm_au}/Contents/Info.plist"
 cleanup_build_runtime_home
 trap - EXIT HUP INT TERM
 
-if find "${md_app}" "${mm_app}" "${md_vst3}" "${mm_vst3}" \
+if find "${md_app}" "${mm_app}" "${mdmm_app}" "${md_vst3}" "${mm_vst3}" \
     "${md_au}" "${mm_au}" -type f \
     \( -iname '*.bin' -o -iname '*.rom' -o -iname '*.nvram' -o \
        -iname '*.syx' -o -iname '*.wav' -o -iname '*.cache' -o \
@@ -409,6 +421,7 @@ package_dir="${output_dir}/${package_name}"
 mkdir -p "${package_dir}"
 /usr/bin/ditto "${md_app}" "${package_dir}/Gearmulator MD.app"
 /usr/bin/ditto "${mm_app}" "${package_dir}/Gearmulator MM.app"
+/usr/bin/ditto "${mdmm_app}" "${package_dir}/Maschine MD-MM.app"
 /usr/bin/ditto "${md_vst3}" "${package_dir}/Gearmulator MD.vst3"
 /usr/bin/ditto "${mm_vst3}" "${package_dir}/Gearmulator MM.vst3"
 /usr/bin/ditto "${md_au}" "${package_dir}/Gearmulator MD.component"
@@ -449,6 +462,7 @@ python3 "${script_dir}/write_mdmm_receipt.py" \
   --archive "${archive}" \
   --artifact "${package_dir}/Gearmulator MD.app" \
   --artifact "${package_dir}/Gearmulator MM.app" \
+  --artifact "${package_dir}/Maschine MD-MM.app" \
   --artifact "${package_dir}/Gearmulator MD.vst3" \
   --artifact "${package_dir}/Gearmulator MM.vst3" \
   --artifact "${package_dir}/Gearmulator MD.component" \

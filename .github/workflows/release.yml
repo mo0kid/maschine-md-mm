@@ -12,6 +12,8 @@ env:
 
 jobs:
   build:
+    # The inherited all-products release must not publish from the MD-MM fork.
+    if: github.repository == 'joelanders/gearmulator-md-mm'
     runs-on: ${{ matrix.os }}
 
     strategy:

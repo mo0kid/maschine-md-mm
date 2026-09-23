@@ -23,7 +23,7 @@ namespace juceRmlUi
 		public:
 			virtual ~Listener() = default;
 			virtual void metalContextCreated(MetalContext&) = 0;
-			virtual void renderMetal(MetalContext&) = 0;
+			virtual bool renderMetal(MetalContext&) = 0;
 			virtual void metalContextClosing(MetalContext&) = 0;
 		};
 

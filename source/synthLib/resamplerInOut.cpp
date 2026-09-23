@@ -14,18 +14,10 @@ namespace synthLib
 	ResamplerInOut::ResamplerInOut(uint32_t _channelCountIn, uint32_t _channelCountOut)
 	: m_channelCountIn(_channelCountIn)
 	, m_channelCountOut(_channelCountOut)
+	, m_activeChannelCountOut(_channelCountOut)
 	, m_scaledInput(_channelCountIn)
 	, m_input(_channelCountIn)
 	{
-	}
-
-	void ResamplerInOut::setResamplerMode(const Resampler::Mode _mode)
-	{
-		if (m_mode == _mode)
-			return;
-
-		m_mode = _mode;
-		recreate();
 	}
 
 	void ResamplerInOut::setDeviceSamplerate(float _samplerate)
@@ -57,12 +49,27 @@ namespace synthLib
 		recreate();
 	}
 
+	void ResamplerInOut::setActiveOutputChannelCount(const uint32_t _channelCount)
+	{
+		if(m_channelCountOut == 0)
+			return;
+		const auto count = std::clamp(_channelCount, 1u, m_channelCountOut);
+		if(m_activeChannelCountOut == count)
+			return;
+		m_activeChannelCountOut = count;
+		recreate();
+	}
+
 	void ResamplerInOut::reconfigure(const uint32_t _channelCountIn,
 		const uint32_t _channelCountOut, const float _hostSamplerate,
 		const float _deviceSamplerate)
 	{
+		const bool allOutputsWereActive = m_activeChannelCountOut == m_channelCountOut;
 		m_channelCountIn = _channelCountIn;
 		m_channelCountOut = _channelCountOut;
+		if(allOutputsWereActive || m_activeChannelCountOut == 0
+			|| m_activeChannelCountOut > m_channelCountOut)
+			m_activeChannelCountOut = m_channelCountOut;
 		m_samplerateHost = _hostSamplerate;
 		m_samplerateDevice = _deviceSamplerate;
 		recreate();
@@ -87,8 +94,10 @@ namespace synthLib
 			/ m_samplerateHost)) + 1024;
 		m_input.reserve(static_cast<size_t>(_maxHostBlockSize) * 2 + 1024);
 		m_scaledInput.reserve(static_cast<size_t>(maxDeviceBlock) * 2 + 1024);
-		m_out->prepare(m_channelCountOut, _maxHostBlockSize);
+		m_out->prepare(m_activeChannelCountOut, _maxHostBlockSize);
 		m_in->prepare(m_channelCountIn, maxDeviceBlock);
+		for(size_t channel = m_activeChannelCountOut; channel < m_channelCountOut; ++channel)
+			m_nativeOutputScratch[channel].reserve(maxDeviceBlock);
 	}
 
 	void ResamplerInOut::recreate()
@@ -111,8 +120,8 @@ namespace synthLib
 		if(m_samplerateDevice < 1 || m_samplerateHost < 1)
 			return;
 
-		m_out.reset(new Resampler(m_samplerateDevice, m_samplerateHost, m_mode));
-		m_in.reset(new Resampler(m_samplerateHost, m_samplerateDevice, m_mode));
+		m_out.reset(new Resampler(m_samplerateDevice, m_samplerateHost));
+		m_in.reset(new Resampler(m_samplerateHost, m_samplerateDevice));
 
 		// prewarm to calculate latency
 		std::array<std::vector<float>, 12> data;
@@ -256,7 +265,14 @@ namespace synthLib
 				inputs.fill(nullptr);
 			}
 
-			_processFunc(inputs, _outs, _numProcessedSamples, m_processedMidiIn, m_midiOut);
+			TAudioOutputs deviceOutputs = _outs;
+			for(size_t channel = m_activeChannelCountOut; channel < m_channelCountOut; ++channel)
+			{
+				auto& scratch = m_nativeOutputScratch[channel];
+				scratch.resize(_numProcessedSamples);
+				deviceOutputs[channel] = scratch.data();
+			}
+			_processFunc(inputs, deviceOutputs, _numProcessedSamples, m_processedMidiIn, m_midiOut);
 			for(const auto& event : m_midiOut)
 				m_pendingMidiOut.push_back({event, rescaleSamplesCeil(m_deviceSamples + event.offset,
 					m_samplerateDevice, m_samplerateHost) + m_outputLatency});
@@ -270,7 +286,7 @@ namespace synthLib
 			}
 		};
 
-		m_out->process(_outputs, m_channelCountOut,
+		m_out->process(_outputs, m_activeChannelCountOut,
 			_numSamples, false, feedOutput);
 
 		const auto end = m_hostSamples + _numSamples;

@@ -25,10 +25,10 @@ namespace jucePluginEditorLib
 		// A combined product may host this editor inside a larger editor. In that
 		// case the parent owns sizing and the normal standalone parent-size repair
 		// must not expand the entire composite to this panel's saved scale.
-		void setEmbedded(bool _embedded);
+		void setEmbedded(bool _embedded, float _scalePercent = -1.0f);
 
 	private:
-		void setGuiScale(float _percent);
+		void setGuiScale(float _percent, bool _persist = true);
 		void setUiRoot(juce::Component* _component);
 
 		void timerCallback() override;

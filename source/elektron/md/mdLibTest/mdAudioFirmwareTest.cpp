@@ -86,10 +86,6 @@ namespace
 		for(size_t channel = 0; channel < output.size(); ++channel)
 			outputs[channel] = output[channel].data();
 
-		constexpr std::array<synthLib::Resampler::Mode, 3> modes{
-			synthLib::Resampler::Mode::Legacy,
-			synthLib::Resampler::Mode::MameHq,
-			synthLib::Resampler::Mode::MameLofi};
 		constexpr std::array<float, 3> rates{44100.0f, 48000.0f, 96000.0f};
 		constexpr std::array<uint32_t, 11> hostileBlocks{
 			1, 2, 7, 31, 63, 64, 65, 127, 257, 1023, 2048};
@@ -98,12 +94,9 @@ namespace
 		uint64_t inputCursor = 0;
 		bool exercisedState = false;
 
-		for(const auto mode : modes)
+		for(const auto rate : rates)
 		{
-			for(const auto rate : rates)
-			{
 				plugin.setHostSamplerate(rate, 44100.0f);
-				plugin.setResamplerMode(mode);
 				plugin.setBlockSize(capacity);
 				for(size_t warmup = 0; warmup < 4; ++warmup)
 					plugin.process(inputs, outputs, 1024, 0.0f, 0.0f, false);
@@ -152,7 +145,6 @@ namespace
 					"firmware scheduler outran host-input lookahead");
 				require(device->getHardware().hostAudioInputOverflowCount() == 0,
 					"firmware scheduler overflowed the host-input queue");
-			}
 		}
 		std::cout << "mdAudioFirmwareTest: " << _label
 			<< " randomized scheduler/resampler soak PASS\n";

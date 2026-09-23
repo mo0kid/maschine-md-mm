@@ -104,18 +104,25 @@ int EditorWindow::getControlParameterIndex(Component& _component)
 	return AudioProcessorEditor::getControlParameterIndex(_component);
 }
 
-void EditorWindow::setEmbedded(const bool _embedded)
+void EditorWindow::setEmbedded(const bool _embedded, const float _scalePercent)
 {
 	m_scaleRestore.setEmbedded(_embedded);
+	// The combined MD/MM editor uses its visible controls; its child panels do
+	// not need the separate plug-in editors' right-click menus.
+	if(auto* const editor = m_state.getEditor())
+		if(auto* const rml = editor->getRmlComponent())
+			rml->setContextMenusEnabled(!_embedded);
 	if(m_scaleRestore.isEmbedded())
 	{
+		if(_scalePercent > 0.0f)
+			setGuiScale(_scalePercent, false);
 		stopTimer();
 		setResizable(false, false);
 		setConstrainer(nullptr);
 	}
 }
 
-void EditorWindow::setGuiScale(const float _percent)
+void EditorWindow::setGuiScale(const float _percent, const bool _persist)
 {
 	if(!m_state.getWidth() || !m_state.getHeight())
 		return;
@@ -127,14 +134,19 @@ void EditorWindow::setGuiScale(const float _percent)
 
 	setSize(w, h);
 
-	m_config.setValue("scale", _percent);
-	m_config.saveIfNeeded();
+	if(_persist)
+	{
+		m_config.setValue("scale", _percent);
+		m_config.saveIfNeeded();
+	}
 }
 
 void EditorWindow::setUiRoot(juce::Component* _component)
 {
 	removeAllChildren();
 	setConstrainer(nullptr);
+	if(auto* const rml = dynamic_cast<juceRmlUi::RmlComponent*>(_component))
+		rml->setContextMenusEnabled(!m_scaleRestore.isEmbedded());
 
 	if(!_component)
 		return;

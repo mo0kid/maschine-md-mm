@@ -217,8 +217,22 @@ namespace md::automation::sysex
 			channel = (*decoded)[1];
 		}
 
-		return channel < 16 || channel == 0x7f
-			? std::optional<GlobalDump>(GlobalDump{slot, channel}) : std::nullopt;
+		if(channel >= 16 && channel != 0x7f) return std::nullopt;
+		GlobalDump result{slot, channel};
+		result.drumNoteMap.fill(0xff);
+		if(_model == MachineModel::Machinedrum)
+		{
+			// MD Global: 16 output routings followed by the 128-entry key map,
+			// packed as one MSB byte and seven low-byte payloads per group.
+			for(size_t note = 0; note < result.drumNoteMap.size(); ++note)
+			{
+				const auto group = 0x1a + (note / 7) * 8;
+				const auto bit = note % 7;
+				result.drumNoteMap[note] = _message[group + 1 + bit]
+					| ((_message[group] & (1u << (6 - bit))) ? 0x80 : 0);
+			}
+		}
+		return result;
 	}
 
 	std::optional<KitDump> parseKitDump(

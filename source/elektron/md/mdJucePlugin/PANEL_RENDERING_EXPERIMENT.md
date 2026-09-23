@@ -1,4 +1,4 @@
-# Crisp panel rendering experiment
+# Crisp panel rendering
 
 `PixelPerfectPanel` owns the experiment's state, helper elements and LCD drawing
 policy. Its only editor hooks are `applyPixelPerfectPanel()` and the optional
@@ -7,7 +7,17 @@ panel-input or state-chunk dependencies.
 
 The config key and default live in `mdPixelPerfectPanel.h`. The checkbox and editor
 both use those constants, so changing the default cannot make their states disagree.
-Explicitly saved choices take precedence. The experiment defaults off.
+Explicitly saved choices take precedence. Crisp rendering defaults on for both
+instruments, including the combined desktop app. The settings checkbox remains
+available as an opt-out.
+
+In crisp mode, the bundled skins hide their fixed-size LCD background and border
+without changing the layout anchor. The canvas draws a two-physical-pixel bezel
+around the integer-sized framebuffer, with four physical pixels of LCD background
+between the image and bezel on every side. Remaining canvas space is transparent.
+`Viewport` reserves this inset for both rendering and pointer hit testing; the
+frame and margin never intercept an LCD parameter. The original skin surround
+is restored when crisp rendering is disabled.
 
 Only static, flat rules marked `elektronPixelRule` in the bundled skins participate.
 Unmarked 1dp elements are untouched. The controller tracks helpers with RML observer
@@ -15,11 +25,10 @@ pointers so deleting a marked element does not leave a dangling pointer. Destruc
 restores original backgrounds, removes helpers and disables its canvas/density options.
 The controller must be destroyed before its RML core, as it is in `Editor`.
 
-## Promote
+## Platform checks
 
-Change `PixelPerfectPanel::defaultEnabled` and the experimental checkbox wording.
-Keep the opt-out initially and preserve explicit saved choices. Before promotion,
-validate GPU output, actual monitor migration and rendering CPU cost on older Intel
+Retain the opt-out and preserve explicit saved choices. In addition to the automated
+software-renderer tests, validate GPU output, actual monitor migration and rendering CPU cost on older Intel
 machines. At 2x density, software rendering covers four times as many pixels.
 
 ## Remove

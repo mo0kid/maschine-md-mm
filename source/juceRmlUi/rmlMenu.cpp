@@ -230,6 +230,10 @@ namespace juceRmlUi
 
 	void Menu::runModal(const Rml::Element* _parent, const Rml::Vector2f& _position, const uint32_t _itemsPerColumn)
 	{
+		if (const auto* component = RmlComponent::fromElement(_parent);
+			component && !component->contextMenusEnabled())
+			return;
+
 		if (isOpen())
 			return;
 

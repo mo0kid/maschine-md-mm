@@ -154,33 +154,28 @@ namespace mdJucePlugin
 		stopTimer(g_panelTimerId);
 	}
 
-	std::shared_ptr<md::FrontPanelPublisher> Editor::getFrontPanelPublisher() const
+	std::shared_ptr<md::FrontPanelPublisher> Editor::getFrontPanelPublisher()
 	{
-		return getProcessor().getPlugin().withDeviceLocked(
-			[](synthLib::Device* const _device)
-			{
-				auto* const device = dynamic_cast<md::Device*>(_device);
-				return device ? device->getFrontPanelPublisher()
-					: std::shared_ptr<md::FrontPanelPublisher>{};
-			});
+		// Device replacements rebind this same publisher, so once acquired it stays
+		// valid for the editor's lifetime. Avoid even a try-lock on every animation
+		// tick: a busy audio callback must not determine the splash frame cadence.
+		if(m_frontPanelPublisher)
+			return m_frontPanelPublisher;
+
+		// The audio callback holds Plugin::m_lock for the whole emulation block.
+		// Front-panel presentation runs every 16 ms on the message thread, so a
+		// blocking device lookup can visibly freeze the entire UI whenever realtime
+		// processing is late. Refresh the shared publisher opportunistically and
+		// keep using the last valid one while the audio thread owns the lock.
+		m_frontPanelPublisher = dynamic_cast<AudioPluginAudioProcessor&>(
+			getProcessor()).tryGetFrontPanelPublisher();
+		return m_frontPanelPublisher;
 	}
 
 	bool Editor::sendPanelEvent(const uint8_t _command, const uint8_t _argument) const
 	{
-		auto& plugin = getProcessor().getPlugin();
-		auto& diagnostics = plugin.getRealtimeInstrumentation();
-		const auto model = static_cast<uint32_t>(getModel());
-		const auto token = diagnostics.beginPanelInput(model, _command, _argument);
-		const auto accepted = plugin.withDeviceLocked(
-			[&](synthLib::Device* const _device)
-			{
-				auto* const device = dynamic_cast<md::Device*>(_device);
-				if(!device)
-					return false;
-				return device->sendPanelEvent(_command, _argument);
-			});
-		diagnostics.endPanelInput(token, model, _command, _argument, accepted);
-		return accepted;
+		return dynamic_cast<AudioPluginAudioProcessor&>(
+			getProcessor()).sendPanelEvent(_command, _argument);
 	}
 
 	bool Editor::refreshFrontPanelState(const double _nowMilliseconds)
@@ -2009,12 +2004,6 @@ namespace mdJucePlugin
 		const auto lcdOff = isMonomachine ? g_mmLcdOff : g_mdLcdOff;
 		const auto lcdOn = isMonomachine ? g_mmLcdOn : g_mdLcdOn;
 
-		// The skin's display surround need not have the framebuffer's 2:1 aspect.
-		// Keep spare space the LCD background colour instead of stretching pixels.
-		_g.fillAll(juce::Colour(lcdOff));
-		if(!m_frontPanelSnapshotValid)
-			return;
-
 		const auto& fp = m_frontPanelSnapshot;
 
 		juce::Image lcd(juce::Image::ARGB, md::FrontPanel::g_lcdWidth, md::FrontPanel::g_lcdHeight, false);
@@ -2025,13 +2014,16 @@ namespace mdJucePlugin
 			for(uint32_t y=0; y<md::FrontPanel::g_lcdHeight; ++y)
 			{
 				for(uint32_t x=0; x<md::FrontPanel::g_lcdWidth; ++x)
-					bd.setPixelColour(x, y, juce::Colour(fp.getLcdPixel(x, y) ? lcdOn : lcdOff));
+					bd.setPixelColour(x, y, juce::Colour(m_frontPanelSnapshotValid && fp.getLcdPixel(x, y) ? lcdOn : lcdOff));
 			}
 		}
 
 		_g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
-		if(m_pixelPerfectPanel && m_pixelPerfectPanel->paintLcd(lcd, _g))
+		if(m_pixelPerfectPanel && m_pixelPerfectPanel->paintLcd(lcd, _g, juce::Colour(lcdOff)))
 			return;
+		// Only the smooth legacy mode fills the full skin opening. Crisp mode
+		// leaves it transparent outside the tight bezel around the pixel grid.
+		_g.fillAll(juce::Colour(lcdOff));
 		auto paintSize = m_lcdCanvas ? m_lcdCanvas->getPaintSize()
 			: Rml::Vector2i(_target.getWidth(), _target.getHeight());
 		if(paintSize.x <= 0 || paintSize.y <= 0)
@@ -2076,10 +2068,25 @@ namespace mdJucePlugin
 		if(m_lcdCanvas && m_lcdChanged)
 			m_lcdCanvas->repaint();
 
-		// SetClass mutates the Rml DOM but does not wake its renderer. Without this,
-		// LED state is correct in the DOM while the pixels on screen can remain stale
-		// until an unrelated repaint (normally up to 500 ms later).
-		if(updateLeds())
+		bool masterVolumeChanged = false;
+		if(m_masterVolume)
+		{
+			const auto gain = std::clamp(
+				getProcessor().getOutputGain(), 0.0f, 1.0f);
+			if(std::abs(juceRmlUi::ElemValue::getValue(m_masterVolume) - gain)
+				> 0.0005f)
+			{
+				// Controller/automation changes must move the panel control too. The
+				// false flag avoids emitting a duplicate Change event back to audio.
+				m_masterVolume->setValue(gain, false);
+				masterVolumeChanged = true;
+			}
+		}
+
+		// SetClass/setValue mutate the Rml DOM but do not wake its renderer.
+		// Explicitly schedule the next UI update when external state changed.
+		const auto ledsChanged = updateLeds();
+		if(masterVolumeChanged || ledsChanged)
 			if(auto* rml = getRmlComponent())
 				// These class changes are resolved in the next RmlUi update. Avoid
 				// asking the software fallback to rasterize three unchanged frames.

@@ -341,12 +341,22 @@ namespace
 		Message global{0xf0, 0x00, 0x20, 0x3c, 0x02, 0x00,
 			0x50, 0x06, 0x01, 0x05};
 		global.resize(0xb0, 0);
+		for(size_t note = 0; note < 128; ++note) {
+			const auto group = 0x1a + (note / 7) * 8;
+			global[group] = 0x7f;
+			global[group + 1 + note % 7] = 0x7f;
+		}
+		// A remapped note, not the factory drum-note layout.
+		global[0x1a + (60 / 7) * 8] &= ~(1u << (6 - 60 % 7));
+		global[0x1a + (60 / 7) * 8 + 1 + 60 % 7] = 9;
 		global[0xad] = 11;
 		finishDump(global);
 		const auto parsedGlobal = parseGlobalDump(md::MachineModel::Machinedrum, global);
 		require(parsedGlobal && parsedGlobal->slot == 5
 			&& parsedGlobal->baseChannel == 11,
 			"wrong MD base channel");
+		require(parsedGlobal->drumNoteMap[60] == 9 && parsedGlobal->drumNoteMap[61] == 0xff,
+			"MD drum key map lost custom assignments or high-bit unmapped entries");
 		global[0xad] = 0x7f;
 		global.resize(global.size() - 5);
 		finishDump(global);

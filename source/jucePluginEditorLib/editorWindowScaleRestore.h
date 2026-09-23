@@ -42,7 +42,7 @@ namespace jucePluginEditorLib
 
 		bool shouldPersistResize() const noexcept
 		{
-			return !m_delayedRestorePending;
+			return !m_embedded && !m_delayedRestorePending;
 		}
 
 		bool delayedRestorePending() const noexcept

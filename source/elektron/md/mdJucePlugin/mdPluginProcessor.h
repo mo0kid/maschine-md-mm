@@ -5,10 +5,16 @@
 #include "synthLib/performanceReport.h"
 
 #include <optional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <mutex>
 #include <vector>
+
+namespace md
+{
+	class FrontPanelPublisher;
+}
 
 namespace mdJucePlugin
 {
@@ -34,6 +40,11 @@ namespace mdJucePlugin
 	    ~AudioPluginAudioProcessor() override;
 
 		md::MachineModel getModel() const { return m_model; }
+		std::shared_ptr<md::FrontPanelPublisher> tryGetFrontPanelPublisher();
+		uint8_t getCurrentPattern();
+		uint16_t getDrumHitMask();
+		uint8_t getMidiBaseChannel();
+		bool sendPanelEvent(uint8_t _command, uint8_t _argument);
 		static md::MachineModel getCompiledProductModel();
 		static bool hasEmbeddedProductResource(std::string_view _filename);
 		juce::File getInstalledFactoryStorageImage() const;

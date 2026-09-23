@@ -15,12 +15,20 @@ endif()
 add_compile_definitions(MDMM_DIAGNOSTICS_REVISION="${MDMM_DIAGNOSTICS_REVISION}")
 
 set(SOURCES
+	mdCombinedEditor.cpp mdCombinedEditor.h
+	mdCombinedProcessor.cpp mdCombinedProcessor.h
 	mdController.cpp mdController.h
 	mdEditor.cpp mdEditor.h
 	mdFrontPanelPresentation.h
 	mdLcdGesture.h
 	mdLcdInteractionModel.cpp mdLcdInteractionModel.h
 	mdLcdViewport.h
+	mdMaschineNihiaClient.cpp mdMaschineNihiaClient.h
+	mdMaschineNihiaProtocol.cpp mdMaschineNihiaProtocol.h
+	mdMaschineScreenRenderer.cpp mdMaschineScreenRenderer.h
+	mdMaschineController.cpp mdMaschineController.h
+	mdMaschineBankPreview.h mdMaschineRecordedSteps.h
+	mdMaschineSectionPlayback.h mdMaschineStripLeds.h
 	mdPixelPerfectPanel.cpp mdPixelPerfectPanel.h
 	mdPanelAffordances.h
 	mdPluginEditorState.cpp mdPluginEditorState.h
@@ -67,36 +75,107 @@ juce_add_binary_data(mdJucePlugin_BinaryData SOURCES
 juce_add_binary_data(mmJucePlugin_BinaryData SOURCES
 	${COMMON_ASSETS} "tus_settings_gui_Monomachine.rml"
 	"tus_settings_dspaudio_Monomachine.rml" ${MM_SKIN_ASSETS})
+juce_add_binary_data(mdmmJucePlugin_BinaryData SOURCES
+	${COMMON_ASSETS}
+	"tus_settings_gui_Machinedrum.rml" "tus_settings_dspaudio_Machinedrum.rml"
+	"tus_settings_gui_Monomachine.rml" "tus_settings_dspaudio_Monomachine.rml"
+	${MD_SKIN_ASSETS} ${MM_SKIN_ASSETS})
 
 createJucePlugin(mdJucePlugin "Gearmulator MD" TRUE "Tmdr" mdJucePlugin_BinaryData mdLib)
 createJucePlugin(mmJucePlugin "Gearmulator MM" TRUE "Tmno" mmJucePlugin_BinaryData mdLib)
+createJucePlugin(mdmmJucePlugin "Maschine MD-MM" TRUE "Tmdm" mdmmJucePlugin_BinaryData mdLib)
+# Retain the existing audio-device/settings file across the product rename.
+if(TARGET mdmmJucePlugin_Standalone)
+	target_compile_definitions(mdmmJucePlugin_Standalone PRIVATE
+		JUCE_STANDALONE_SETTINGS_NAME="Gearmulator MD-MM")
+endif()
+target_compile_definitions(mdmmJucePlugin PRIVATE
+	MD_JUCEPLUGIN_COMBINED=1
+	JUCE_STANDALONE_PLUGIN_DEFAULT_BUFFER_SIZE=512)
+
+if(APPLE)
+	find_library(MD_COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+	foreach(plugin_target mdJucePlugin mmJucePlugin mdmmJucePlugin)
+		target_link_libraries(${plugin_target} PRIVATE ${MD_COREFOUNDATION_FRAMEWORK})
+	endforeach()
+endif()
 
 # MD/MM expose an optional stereo input to plug-in hosts. Starting the
 # standalone with that input active makes CoreAudio combine the built-in input
 # and output devices on common Mac setups, which can consume the real-time
 # deadline. Keep the input selectable, but start new standalone configurations
 # with output only.
-foreach(plugin_target mdJucePlugin mmJucePlugin)
+foreach(plugin_target mdJucePlugin mmJucePlugin mdmmJucePlugin)
 	target_compile_definitions(${plugin_target} PUBLIC
 		JUCE_STANDALONE_PLUGIN_AUTO_OPEN_AUDIO_INPUT=0
 		JUCE_VST3_EMULATE_MIDI_PC_WITH_PROGRAMS=1)
 endforeach()
 
-# JUCE can populate bundle resources after its first ad-hoc signing pass on
-# macOS. Re-sign the completed VST3 and Standalone bundles so hosts and Finder
-# do not reject their final on-disk contents.
+# JUCE can populate bundle resources after its first signing pass on macOS.
+# Re-sign the completed bundles so hosts and Finder do not reject their final
+# on-disk contents. Prefer an installed Developer ID for local builds: an
+# ad-hoc signature changes identity whenever the executable changes, which
+# makes macOS ask for microphone/network permissions again after every build.
 if(APPLE)
+	set(GEARMULATOR_LOCAL_CODESIGN_IDENTITY "" CACHE STRING
+		"Identity used to sign local Gearmulator bundles; use '-' to force ad-hoc signing")
+	set(_gearmulator_codesign_identity "${GEARMULATOR_LOCAL_CODESIGN_IDENTITY}")
+	if(NOT _gearmulator_codesign_identity)
+		execute_process(
+			COMMAND /usr/bin/security find-identity -v -p codesigning
+			OUTPUT_VARIABLE _gearmulator_codesign_identities
+			ERROR_QUIET)
+		string(REGEX MATCH
+			"\"Developer ID Application: [^\"]+\""
+			_gearmulator_codesign_match "${_gearmulator_codesign_identities}")
+		if(_gearmulator_codesign_match)
+			string(REGEX REPLACE "^\"|\"$" ""
+				_gearmulator_codesign_identity "${_gearmulator_codesign_match}")
+		endif()
+	endif()
+	if(NOT _gearmulator_codesign_identity)
+		set(_gearmulator_codesign_identity "-")
+	endif()
+	message(STATUS "Local Gearmulator code-signing identity: ${_gearmulator_codesign_identity}")
+	if(NOT _gearmulator_codesign_identity STREQUAL "-")
+		string(REGEX REPLACE ".*\\(([A-Z0-9]+)\\)$" "\\1"
+			_gearmulator_codesign_team "${_gearmulator_codesign_identity}")
+	endif()
+
 	foreach(plugin_target
 		mdJucePlugin_VST3 mmJucePlugin_VST3
+		mdmmJucePlugin_VST3
 		mdJucePlugin_AU mmJucePlugin_AU
-		mdJucePlugin_Standalone mmJucePlugin_Standalone)
+		mdmmJucePlugin_AU
+		mdJucePlugin_Standalone mmJucePlugin_Standalone
+		mdmmJucePlugin_Standalone)
 		if(TARGET ${plugin_target})
-			add_custom_command(TARGET ${plugin_target} POST_BUILD
-				COMMAND /usr/bin/codesign --force --deep --sign -
-					"$<TARGET_BUNDLE_DIR:${plugin_target}>"
-				COMMENT "Ad-hoc signing completed ${plugin_target} bundle"
-				VERBATIM
-			)
+			if(_gearmulator_codesign_identity STREQUAL "-")
+				add_custom_command(TARGET ${plugin_target} POST_BUILD
+					COMMAND /usr/bin/codesign --force --deep --sign -
+						"$<TARGET_BUNDLE_DIR:${plugin_target}>"
+					COMMENT "Ad-hoc signing completed ${plugin_target} bundle"
+					VERBATIM)
+			else()
+				# TARGET POST_BUILD is an Xcode shell phase and can run before
+				# Xcode's own CodeSign phase. Configure that final phase too, so
+				# it cannot replace the stable signature with "Sign to Run Locally".
+				set_target_properties(${plugin_target} PROPERTIES
+					XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${_gearmulator_codesign_identity}"
+					XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Manual"
+					XCODE_ATTRIBUTE_CODE_SIGN_INJECT_BASE_ENTITLEMENTS "NO"
+					XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${_gearmulator_codesign_team}"
+					XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
+					XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS
+						"${CMAKE_CURRENT_SOURCE_DIR}/macos-local.entitlements")
+				add_custom_command(TARGET ${plugin_target} POST_BUILD
+					COMMAND /usr/bin/codesign --force --deep --options runtime
+						--entitlements "${CMAKE_CURRENT_SOURCE_DIR}/macos-local.entitlements"
+						--sign "${_gearmulator_codesign_identity}"
+						"$<TARGET_BUNDLE_DIR:${plugin_target}>"
+					COMMENT "Stable signing completed ${plugin_target} bundle"
+					VERBATIM)
+			endif()
 		endif()
 	endforeach()
 endif()
@@ -254,6 +333,34 @@ if(BUILD_TESTING)
 	add_test(NAME mdFrontPanelPresentationTests COMMAND mdFrontPanelPresentationTest)
 	set_tests_properties(mdFrontPanelPresentationTests PROPERTIES LABELS "UnitTest")
 	set_property(TARGET mdFrontPanelPresentationTest PROPERTY FOLDER "Elektron")
+
+	add_executable(mdMaschineScreenRendererTest
+		mdMaschineScreenRendererTest.cpp mdMaschineScreenRenderer.cpp)
+	add_executable(mdCombinedMidiRouterTest mdCombinedMidiRouterTest.cpp)
+	target_link_libraries(mdCombinedMidiRouterTest PRIVATE mdLib)
+	add_test(NAME mdCombinedMidiRouterTest COMMAND mdCombinedMidiRouterTest)
+	set_tests_properties(mdCombinedMidiRouterTest PROPERTIES LABELS "UnitTest;Maschine")
+	add_executable(mdMaschineNihiaProtocolTest
+		mdMaschineNihiaProtocolTest.cpp mdMaschineNihiaProtocol.cpp
+		mdMaschineScreenRenderer.cpp)
+	target_link_libraries(mdMaschineNihiaProtocolTest PRIVATE mdLib)
+	add_test(NAME mdMaschineNihiaProtocolTest COMMAND mdMaschineNihiaProtocolTest)
+	set_tests_properties(mdMaschineNihiaProtocolTest PROPERTIES
+		LABELS "UnitTest;Maschine")
+	set_property(TARGET mdMaschineNihiaProtocolTest PROPERTY FOLDER "Elektron/test")
+	if(APPLE)
+		add_executable(mdMaschineHardwareProbe EXCLUDE_FROM_ALL
+			mdMaschineHardwareProbe.cpp mdMaschineNihiaClient.cpp
+			mdMaschineNihiaProtocol.cpp mdMaschineScreenRenderer.cpp)
+		target_link_libraries(mdMaschineHardwareProbe PRIVATE mdLib
+			${MD_COREFOUNDATION_FRAMEWORK})
+		set_property(TARGET mdMaschineHardwareProbe PROPERTY FOLDER "Elektron/test")
+	endif()
+	target_link_libraries(mdMaschineScreenRendererTest PRIVATE mdLib)
+	add_test(NAME mdMaschineScreenRendererTest COMMAND mdMaschineScreenRendererTest)
+	set_tests_properties(mdMaschineScreenRendererTest PROPERTIES
+		LABELS "UnitTest;Maschine")
+	set_property(TARGET mdMaschineScreenRendererTest PROPERTY FOLDER "Elektron/test")
 
 	add_executable(mdAutomationParameterTest mdAutomationParameterTest.cpp)
 	target_link_libraries(mdAutomationParameterTest PRIVATE

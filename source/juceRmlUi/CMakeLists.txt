@@ -78,10 +78,15 @@ endif()
 # -Xarch_x86_64 so the flags apply only to the x86 slice and don't warn
 # (or error with -Werror) on the arm64 slice.
 if(APPLE)
-    # Universal or x86_64-only: scope flags to the x86_64 slice
-    if(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86|X86|amd64|AMD64")
-        target_compile_options(juceRmlUi PRIVATE -Xarch_x86_64 -mssse3 -Xarch_x86_64 -msse4.1)
-    endif()
+	# Universal or x86_64-only: scope flags to the x86_64 slice
+	if(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86|X86|amd64|AMD64")
+		# Keep each -Xarch_x86_64 pair together. CMake/Xcode may de-duplicate
+		# repeated standalone option tokens, which would otherwise leak the
+		# following SSE flag into the arm64 compile.
+		target_compile_options(juceRmlUi PRIVATE
+			"SHELL:-Xarch_x86_64 -mssse3"
+			"SHELL:-Xarch_x86_64 -msse4.1")
+	endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86|X86|amd64|AMD64|i[3-6]86")
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag(-mssse3 HAS_SSSE3)

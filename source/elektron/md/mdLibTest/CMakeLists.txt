@@ -237,6 +237,33 @@ endif()
 
 add_executable(encoderPressFirmwareTest encoderPressFirmwareTest.cpp)
 target_link_libraries(encoderPressFirmwareTest PRIVATE mdLib)
+add_executable(mdRecordFirmwareTest mdRecordFirmwareTest.cpp)
+add_executable(mdSectionFirmwareTest mdSectionFirmwareTest.cpp)
+target_link_libraries(mdSectionFirmwareTest PRIVATE mdLib)
+add_test(NAME mdSectionFirmwareTest COMMAND mdSectionFirmwareTest md)
+add_test(NAME mmSectionFirmwareTest COMMAND mdSectionFirmwareTest mm)
+add_test(NAME mmFourSectionFirmwareTest COMMAND mdSectionFirmwareTest mm 4)
+set_tests_properties(mdSectionFirmwareTest mmSectionFirmwareTest mmFourSectionFirmwareTest PROPERTIES
+	SKIP_RETURN_CODE 77 LABELS "Firmware;Maschine")
+target_link_libraries(mdRecordFirmwareTest PRIVATE mdLib)
+add_test(NAME mdRecordFirmwareTest COMMAND mdRecordFirmwareTest md)
+add_test(NAME mdPadCursorFirmwareTest COMMAND mdRecordFirmwareTest md --md-pad-cursor)
+add_test(NAME mdPadCursor64FirmwareTest COMMAND mdRecordFirmwareTest md --md-pad-cursor 64)
+set_tests_properties(mdPadCursorFirmwareTest mdPadCursor64FirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 120)
+add_test(NAME mdLcdDrumFirmwareTest COMMAND mdRecordFirmwareTest md --drums)
+set_tests_properties(mdLcdDrumFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 180)
+add_test(NAME mmRecordFirmwareTest COMMAND mdRecordFirmwareTest mm)
+add_test(NAME mmRecordedStepLedsFirmwareTest COMMAND mdRecordFirmwareTest mm --step-colours)
+add_test(NAME mmRecordedStepPagesFirmwareTest COMMAND mdRecordFirmwareTest mm --step-pages)
+set_tests_properties(mmRecordedStepPagesFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 120)
+set_tests_properties(mmRecordedStepLedsFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 90)
+set_tests_properties(mdRecordFirmwareTest mmRecordFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 90)
+set_property(TARGET mdRecordFirmwareTest PROPERTY FOLDER "Elektron/test")
 add_test(NAME mdEncoderPressFirmwareTest COMMAND encoderPressFirmwareTest md)
 add_test(NAME mmEncoderPressFirmwareTest COMMAND encoderPressFirmwareTest mm)
 set_tests_properties(mdEncoderPressFirmwareTest mmEncoderPressFirmwareTest PROPERTIES

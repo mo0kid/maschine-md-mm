@@ -47,6 +47,11 @@ namespace mdJucePlugin
 		{
 			return m_baseChannel.load(std::memory_order_acquire);
 		}
+		uint8_t getCurrentPattern() const
+		{
+			return m_currentPattern.load(std::memory_order_acquire);
+		}
+		uint16_t getDrumHitMask() const;
 		bool hasAutomationGlobalSnapshot() const
 		{
 			return m_haveGlobal.load(std::memory_order_acquire);
@@ -162,6 +167,7 @@ namespace mdJucePlugin
 		std::atomic<bool> m_haveKit{false};
 		std::atomic<bool> m_automationReady{false};
 		std::atomic<uint64_t> m_lastStatePollMs{0};
+		std::atomic<uint64_t> m_lastPatternStatusRequestMs{0};
 		std::atomic<uint64_t> m_kitDumpRequestRevision{0};
 		std::atomic<bool> m_forceApplyRequestedKitDump{false};
 		std::atomic<bool> m_applyRequestedKitDump{true};
@@ -181,6 +187,9 @@ namespace mdJucePlugin
 		std::atomic<uint64_t> m_transmittedAutomationDigest{14695981039346656037ull};
 		std::atomic<uint8_t> m_currentGlobal{0xff};
 		std::atomic<uint8_t> m_currentKit{0xff};
+		std::atomic<uint8_t> m_currentPattern{0xff};
+		std::array<uint8_t, 128> m_drumNoteMap{}; // Guarded by m_synchronizationLock.
+		std::array<std::atomic<uint64_t>, 16> m_drumHitUntil{};
 		std::deque<AutomationSlot> m_automationSlots;
 		std::map<Address, size_t> m_automationSlotIndices;
 		RealtimeQueue<QueuedAutomationChange,

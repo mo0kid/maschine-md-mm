@@ -77,7 +77,7 @@ class ReceiptPathSafetyTest(unittest.TestCase):
         self.assertEqual(result["architectures"], ("arm64", "x86_64"))
         self.assertEqual(result["cmake_architectures"], "arm64;x86_64")
         self.assertEqual(
-            result["package_name"], "Gearmulator-Elektron-macOS-Universal"
+            result["package_name"], "Maschine-MD-MM-macOS-Universal"
         )
 
     def test_release_selection_accepts_single_architecture_pgo(self) -> None:
@@ -92,7 +92,7 @@ class ReceiptPathSafetyTest(unittest.TestCase):
 
         self.assertEqual(result["architectures"], ("arm64",))
         self.assertEqual(
-            result["package_name"], "Gearmulator-Elektron-macOS-arm64-PGO"
+            result["package_name"], "Maschine-MD-MM-macOS-arm64-PGO"
         )
 
     def test_release_selection_rejects_universal_or_incomplete_pgo(self) -> None:

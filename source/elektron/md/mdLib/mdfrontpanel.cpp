@@ -28,6 +28,8 @@ namespace md
 		m_byteCount = 0;
 		m_tileWriteCount = 0;
 		m_ledCommandCount = 0;
+		m_selectedMachinedrumTrack = -1;
+		m_machinedrumPlaybackStep = -1;
 	}
 
 	std::optional<FrontPanel::LedBankWrite> FrontPanel::processByte(uint8_t _byte)
@@ -230,6 +232,12 @@ namespace md
 		return ((raw >> static_cast<uint8_t>(_led)) & 1) == 0;
 	}
 
+	FrontPanelPublisher::FrontPanelPublisher()
+	{
+		for(auto& value : m_lastLedValues)
+			value.store(0xff, std::memory_order_relaxed);
+	}
+
 	bool FrontPanelPublisher::tryPublish(const FrontPanel& _panel)
 	{
 		std::unique_lock lock(m_mutex, std::try_to_lock);
@@ -269,6 +277,25 @@ namespace md
 	{
 		const auto sequence = m_ledTransitionSequence.fetch_add(1,
 			std::memory_order_relaxed) + 1;
+		if(_command >= FrontPanel::g_firstLedBank
+			&& _command <= FrontPanel::g_lastLedBank)
+		{
+			const auto bank = static_cast<size_t>(
+				_command - FrontPanel::g_firstLedBank);
+			const auto previous = m_lastLedValues[bank].exchange(
+				_value, std::memory_order_acq_rel);
+			const auto activated = static_cast<uint8_t>(previous & ~_value);
+			const auto deactivated = static_cast<uint8_t>(~previous & _value);
+			for(uint8_t bit = 0; bit < 8; ++bit)
+			{
+				if((activated & static_cast<uint8_t>(1u << bit)) != 0)
+					m_ledActivationSequences[bank * 8 + bit].store(
+						sequence, std::memory_order_release);
+				if((deactivated & static_cast<uint8_t>(1u << bit)) != 0)
+					m_ledDeactivationSequences[bank * 8 + bit].store(
+						sequence, std::memory_order_release);
+			}
+		}
 		const auto write = m_ledTransitionWrite.load(std::memory_order_relaxed);
 		const auto read = m_ledTransitionRead.load(std::memory_order_acquire);
 		if(write - read >= g_ledTransitionCapacity)
@@ -281,6 +308,30 @@ namespace md
 			{sequence, _emulationCycles, _command, _value};
 		m_ledTransitionWrite.store(write + 1, std::memory_order_release);
 		return true;
+	}
+
+	uint64_t FrontPanelPublisher::getLedActivationSequence(
+		const uint8_t _command, const uint8_t _bit) const
+	{
+		if(_command < FrontPanel::g_firstLedBank
+			|| _command > FrontPanel::g_lastLedBank || _bit >= 8)
+			return 0;
+		const auto bank = static_cast<size_t>(
+			_command - FrontPanel::g_firstLedBank);
+		return m_ledActivationSequences[bank * 8 + _bit].load(
+			std::memory_order_acquire);
+	}
+
+	uint64_t FrontPanelPublisher::getLedDeactivationSequence(
+		const uint8_t _command, const uint8_t _bit) const
+	{
+		if(_command < FrontPanel::g_firstLedBank
+			|| _command > FrontPanel::g_lastLedBank || _bit >= 8)
+			return 0;
+		const auto bank = static_cast<size_t>(
+			_command - FrontPanel::g_firstLedBank);
+		return m_ledDeactivationSequences[bank * 8 + _bit].load(
+			std::memory_order_acquire);
 	}
 
 	size_t FrontPanelPublisher::drainLedTransitions(
@@ -315,6 +366,12 @@ namespace md
 	{
 		const std::lock_guard lock(m_mutex);
 		m_snapshot.reset();
+		for(auto& value : m_lastLedValues)
+			value.store(0xff, std::memory_order_release);
+		for(auto& sequence : m_ledActivationSequences)
+			sequence.store(0, std::memory_order_release);
+		for(auto& sequence : m_ledDeactivationSequences)
+			sequence.store(0, std::memory_order_release);
 		m_ledTransitionRead.store(
 			m_ledTransitionWrite.load(std::memory_order_acquire),
 			std::memory_order_release);

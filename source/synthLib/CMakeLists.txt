@@ -28,7 +28,6 @@ set(SOURCES
 	plugin.cpp plugin.h
 	realtimeInstrumentation.cpp realtimeInstrumentation.h
 	performanceReport.cpp performanceReport.h
-	mameResamplers.cpp mameResamplers.h
 	resampler.cpp resampler.h
 	resamplerInOut.cpp resamplerInOut.h
 	sampleRateTime.h
@@ -72,6 +71,12 @@ target_include_directories(synthLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 if(BUILD_TESTING)
 	add_executable(synthLibMidiClockTimingTest synthLibTest/midiClockTimingTest.cpp)
 	target_link_libraries(synthLibMidiClockTimingTest PRIVATE synthLib)
+	# The NaN/unknown-position cases in this timing oracle require IEEE semantics.
+	if(MSVC)
+		target_compile_options(synthLibMidiClockTimingTest PRIVATE /fp:precise)
+	else()
+		target_compile_options(synthLibMidiClockTimingTest PRIVATE -fno-fast-math)
+	endif()
 	add_test(NAME synthLibMidiClockTimingTest COMMAND synthLibMidiClockTimingTest)
 	set_tests_properties(synthLibMidiClockTimingTest PROPERTIES LABELS "UnitTest;Midi;Timing" TIMEOUT 30)
 

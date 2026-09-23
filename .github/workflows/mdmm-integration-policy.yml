@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   integration-policy:
+    # This gate enforces joelanders' release branch and dependency repositories.
+    # It is not the merge policy for the Maschine MD-MM fork.
+    if: github.repository == 'joelanders/gearmulator-md-mm'
     name: Evaluate integration policy
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -71,7 +71,10 @@ namespace juceRmlUi
 		if (!m_attached)
 			return;
 
-		m_shouldExit = true;
+		{
+			std::lock_guard lock(m_renderMutex);
+			m_shouldExit = true;
+		}
 		m_renderCV.notify_all();
 
 		if (m_renderThread && m_renderThread->joinable())
@@ -87,15 +90,23 @@ namespace juceRmlUi
 
 	void MetalContext::triggerRepaint()
 	{
-		m_repaintRequested = true;
+		{
+			std::lock_guard lock(m_renderMutex);
+			m_repaintRequested = true;
+		}
 		m_renderCV.notify_one();
 	}
 
 	void MetalContext::setContinuousRepainting(bool _enabled)
 	{
-		m_continuousRepainting = _enabled;
-		if (_enabled)
-			m_renderCV.notify_one();
+		{
+			std::lock_guard lock(m_renderMutex);
+			m_continuousRepainting = _enabled;
+		}
+		// Wake the render thread for both transitions. Enabling should render
+		// immediately; disabling should leave continuous mode without waiting for
+		// the next frame timeout.
+		m_renderCV.notify_one();
 	}
 
 	double MetalContext::getRenderingScale() const
@@ -145,27 +156,62 @@ namespace juceRmlUi
 			m_contextCreated = true;
 		}
 
+		bool retryPending = false;
 		while (!m_shouldExit)
 		{
+			bool shouldRender = false;
 			{
 				std::unique_lock<std::mutex> lock(m_renderMutex);
-				m_renderCV.wait_for(lock, std::chrono::milliseconds(16), [this]
+
+				if (retryPending)
 				{
-					return m_shouldExit.load() || m_repaintRequested.load() || m_continuousRepainting.load();
-				});
+					// A queued frame could not acquire a drawable. Keep updates gated so
+					// stale frames cannot accumulate, but retry at a bounded cadence.
+					m_renderCV.wait_for(lock, std::chrono::milliseconds(16), [this]
+					{
+						return m_shouldExit.load() || m_repaintRequested.load();
+					});
+				}
+				else if (m_continuousRepainting.load())
+				{
+					// Continuous mode is frame-paced. Do not let the always-true
+					// continuous flag turn wait_for() into a busy render loop.
+					m_renderCV.wait_for(lock, std::chrono::milliseconds(16), [this]
+					{
+						return m_shouldExit.load() || m_repaintRequested.load()
+							|| !m_continuousRepainting.load();
+					});
+				}
+				else
+				{
+					// Non-continuous rendering is event driven.
+					m_renderCV.wait(lock, [this]
+					{
+						return m_shouldExit.load() || m_repaintRequested.load()
+							|| m_continuousRepainting.load();
+					});
+				}
+
+				// Consume the request while holding the wait mutex. Clearing it after
+				// unlocking can overwrite a concurrent triggerRepaint() and leave the
+				// event-driven render thread asleep with a frame still queued.
+				const bool repaintRequested = m_repaintRequested.exchange(false);
+				shouldRender = !m_shouldExit.load()
+					&& (retryPending || repaintRequested || m_continuousRepainting.load());
 			}
 
 			if (m_shouldExit)
 				break;
-
-			m_repaintRequested = false;
+			if (!shouldRender)
+				continue;
 
 			@autoreleasepool
 			{
 				updateDrawableSize();
 
-				if (m_listener && m_viewportWidth > 0 && m_viewportHeight > 0)
-					m_listener->renderMetal(*this);
+				// The listener reports false only when a queued frame should be
+				// retried (for example when CAMetalLayer temporarily has no drawable).
+				retryPending = m_listener && !m_listener->renderMetal(*this);
 			}
 		}
 

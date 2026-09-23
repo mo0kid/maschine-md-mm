@@ -72,12 +72,14 @@ namespace juceRmlUi
 
 #ifdef RMLUI_METAL_RENDERER
 		void metalContextCreated(MetalContext& _context) override;
-		void renderMetal(MetalContext& _context) override;
+		bool renderMetal(MetalContext& _context) override;
 		void metalContextClosing(MetalContext& _context) override;
 #endif
 
 		void mouseDown(const juce::MouseEvent& _event) override;
 		void mouseUp(const juce::MouseEvent& _event) override;
+		void setContextMenusEnabled(bool _enabled) { m_contextMenusEnabled = _enabled; }
+		bool contextMenusEnabled() const { return m_contextMenusEnabled; }
 		void mouseMove(const juce::MouseEvent& _event) override;
 		void mouseDrag(const juce::MouseEvent& _event) override;
 		void mouseDoubleClick(const juce::MouseEvent& _event) override;
@@ -195,6 +197,7 @@ namespace juceRmlUi
 		float m_contentScale = 1.0f;
 		float m_currentRenderScale = 0.0f;
 		bool m_useNativePixelDensity = false;
+		bool m_contextMenusEnabled = true;
 		float m_softwarePixelScale = 1.0f;
 		float m_softwareFrameScale = 1.0f;
 

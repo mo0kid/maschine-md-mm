@@ -64,6 +64,15 @@ namespace
 			throw std::runtime_error(_message);
 	}
 
+	bool sameColour(const juce::Colour _a, const juce::Colour _b)
+	{
+		// The software texture compositor can round a premultiplied channel by one.
+		return std::abs(int(_a.getRed()) - int(_b.getRed())) <= 1
+			&& std::abs(int(_a.getGreen()) - int(_b.getGreen())) <= 1
+			&& std::abs(int(_a.getBlue()) - int(_b.getBlue())) <= 1
+			&& std::abs(int(_a.getAlpha()) - int(_b.getAlpha())) <= 1;
+	}
+
 	class Resources : public juceRmlUi::DataProvider
 	{
 		const std::string rml = R"(<rml><head ><style>
@@ -71,6 +80,8 @@ namespace
 			div { position: absolute; }
 			.panel-led { background-color: #000000; }
 			.panel-led.lit { background-color: #00ff00; }
+			#lcd { background-color: #225533; border: 3dp #345678; }
+			#lcd.elektronCrispLcd { background-color: transparent; border-color: transparent; }
 			</style></head><body>
 			<div id="lcd" style="left: 30.25dp; top: 40.25dp; width: 220.5dp; height: 116.5dp;"/>
 			<div id="rule" class="elektronPixelRule" style="left: 300.25dp; top: 50.25dp; width: 51.25dp; height: 1dp; background-color: #345678;"/>
@@ -110,6 +121,7 @@ namespace
 		auto* doc = component.getDocument();
 		auto* area = doc->GetElementById("lcd");
 		auto* canvas = juceRmlUi::ElemCanvas::create(area);
+		canvas->setClearEveryFrame(true);
 		auto experiment = std::make_unique<mdJucePlugin::PixelPerfectPanel>();
 		juce::Image lcd(juce::Image::ARGB, 128, 64, false);
 		for (int y = 0; y < 64; ++y)
@@ -119,10 +131,12 @@ namespace
 		canvas->setRepaintGraphicsCallback([&](juce::Image& _target, juce::Graphics& _g)
 		{
 			++canvasPaintCount;
-			_g.fillAll(juce::Colours::green);
 			_g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
-			if (!experiment || !experiment->paintLcd(lcd, _g))
+			if (!experiment || !experiment->paintLcd(lcd, _g, juce::Colours::green))
+			{
+				_g.fillAll(juce::Colours::green);
 				_g.drawImageWithin(lcd, 0, 0, _target.getWidth(), _target.getHeight(), juce::RectanglePlacement::centred);
+			}
 		});
 		auto paint = [&](float _dpi)
 		{
@@ -158,7 +172,9 @@ namespace
 			const auto size = canvas->getPaintSize();
 			const auto display = canvas->GetBox().GetSize(Rml::BoxArea::Content);
 			const auto pos = canvas->GetAbsoluteOffset(Rml::BoxArea::Border).Round();
-			const int k = std::min(size.x / 128, size.y / 64);
+			constexpr auto inset = mdJucePlugin::lcdInteraction::Viewport::crispInset;
+			constexpr auto padding = mdJucePlugin::lcdInteraction::Viewport::crispPadding;
+			const int k = std::min((size.x - 2 * inset) / 128, (size.y - 2 * inset) / 64);
 			require(k > 0, "test framebuffer should fit");
 			const int ox = static_cast<int>(pos.x) + (size.x - 128 * k) / 2;
 			const int oy = static_cast<int>(pos.y) + (size.y - 64 * k) / 2;
@@ -183,6 +199,18 @@ namespace
 			for (int y = 0; y < 64 * k; ++y)
 				for (int x = 0; x < 128 * k; ++x)
 					require(crisp.getPixelAt(ox + x, oy + y) == ((x / k + y / k) % 2 ? white : black), "unequal or filtered LCD pixels");
+			for (int gap = 1; gap <= padding; ++gap)
+			{
+				require(sameColour(crisp.getPixelAt(ox - gap, oy), juce::Colours::green)
+					&& sameColour(crisp.getPixelAt(ox + 128 * k - 1 + gap, oy), juce::Colours::green)
+					&& sameColour(crisp.getPixelAt(ox, oy - gap), juce::Colours::green)
+					&& sameColour(crisp.getPixelAt(ox, oy + 64 * k - 1 + gap), juce::Colours::green),
+					"LCD breathing room is not equal on all sides");
+			}
+			require(sameColour(crisp.getPixelAt(ox - inset, oy), juce::Colour(0xff345678)),
+				"tight bezel lost the skin frame colour");
+			require(sameColour(crisp.getPixelAt(ox - inset - 1, oy), juce::Colour(0xff8899aa)),
+				"unused LCD surround was not transparent");
 			experiment->apply(component, canvas, false);
 			samePixels(crisp, paint(dpi), "pending disable");
 			samePixels(baseline, settle(dpi), "restored baseline");
@@ -237,8 +265,13 @@ namespace
 		canvas->repaint();
 		const auto small = settle(1.f);
 		const auto pos = canvas->GetAbsoluteOffset(Rml::BoxArea::Border).Round();
-		const auto right = small.getPixelAt(static_cast<int>(pos.x) + 79, static_cast<int>(pos.y) + 10);
-		const auto bottom = small.getPixelAt(static_cast<int>(pos.x) + 10, static_cast<int>(pos.y) + 39);
+		const auto smallSize = canvas->getPaintSize();
+		const auto smallContent = mdJucePlugin::lcdInteraction::Viewport::create(
+			smallSize.x, smallSize.y, smallSize.x, smallSize.y, true).contentInPaintSpace();
+		const auto right = small.getPixelAt(static_cast<int>(pos.x + smallContent.x + smallContent.width) - 1,
+			static_cast<int>(pos.y + smallContent.y + smallContent.height / 2));
+		const auto bottom = small.getPixelAt(static_cast<int>(pos.x + smallContent.x + smallContent.width / 2),
+			static_cast<int>(pos.y + smallContent.y + smallContent.height) - 1);
 		require(right.getRed() > 250 && right.getGreen() < 5 && right.getBlue() < 5, "padded fallback cropped right edge");
 		require(bottom.getBlue() > 250 && bottom.getRed() < 5 && bottom.getGreen() < 5, "padded fallback cropped bottom edge");
 

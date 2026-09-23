@@ -10,11 +10,32 @@
 /build_win64_VS2019.bat
 /out/
 /build/
+/artifacts/
+/*.dmg
+/.fallback_launch.log
+/.sched_crash_disasm.txt
+# Superseded draft hardware-guide renders (they show obsolete mappings).
+/docs/maschine-mk3-control-guide*.png
 *atom*.sh
 *debug.sh
 CMakeUserPresets.json
 bin/
 .DS_Store
+__pycache__/
+*.py[cod]
+# Local signing credentials and exported private keys must never be published.
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
 _copilot.bat
 target/logs/
 claude*.bat

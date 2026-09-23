@@ -89,6 +89,13 @@ body
 	border: 4dp #0d0f0c;
 }
 
+.mmLcd.elektronCrispLcd
+{
+	/* Keep the layout anchor; the canvas draws a tight, pixel-aligned bezel. */
+	background-color: transparent;
+	border-color: transparent;
+}
+
 /* Typography and printed legends. */
 
 .mmKeyLabel, .mmBankLetter, .mmTrackLabel,
