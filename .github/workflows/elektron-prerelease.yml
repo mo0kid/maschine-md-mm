@@ -1,4 +1,4 @@
-name: MD/MM cross-platform prerelease
+name: Maschine MD-MM macOS prerelease
 
 on:
   push:
@@ -9,8 +9,5 @@ permissions:
   contents: read
 
 jobs:
-  build-windows:
-    uses: ./.github/workflows/elektron-windows.yml
-
   build-macos:
     uses: ./.github/workflows/elektron-macos.yml

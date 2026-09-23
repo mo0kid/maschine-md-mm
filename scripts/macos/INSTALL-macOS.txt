@@ -8,7 +8,7 @@ Installation
 ------------
 
 1. Fully extract the downloaded ZIP archive.
-2. Double-click macsetup_Gearmulator-Elektron.command in the extracted folder.
+2. Double-click macsetup_Maschine-MD-MM.command in the extracted folder.
    Terminal will open, prepare the included apps and plug-ins, and print "Done"
    when successful.
 3. Copy the VST3 plug-ins you want to use to:

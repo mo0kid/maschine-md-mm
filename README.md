@@ -35,20 +35,99 @@ Suspects. Please report fork-specific issues here, not to the upstream projects.
   functions. Additional output pairs are available in a multi-output VST3 host;
   the standalone apps use stereo output.
 
-## macOS build and release
+## Install on macOS
 
-The combined standalone app is **Maschine MD-MM.app**, built by the
-`mdmmJucePlugin_Standalone` CMake target.
-Use `scripts/macos/build_mdmm.sh` for the verified universal build; it expects
-your own MD and MM firmware images through `GEARMULATOR_MD_FIRMWARE_BIN` and
-`GEARMULATOR_MM_FIRMWARE_BIN`. Firmware is not included in this repository or
-in the installer.
+The ZIP works without an Apple Developer account. Download it from
+[Releases](https://github.com/mo0kid/maschine-md-mm/releases), or build it using
+the steps below. Fully extract the archive and run
+`macsetup_Maschine-MD-MM.command` from the extracted folder. Then copy
+`Maschine MD-MM.app` to `/Applications` (or run it from the extracted folder).
+This is the combined app needed for Maschine MK3 screen and control integration.
+If you want the separate plug-ins, copy their `.vst3` bundles to
+`~/Library/Audio/Plug-Ins/VST3` and their `.component` bundles to
+`~/Library/Audio/Plug-Ins/Components`. Restart your DAW or rescan plug-ins.
+The setup command prepares the downloaded bundles; it does not install them.
+Because the ZIP is signed locally and is not notarized, macOS may ask you to
+confirm opening its apps or setup command.
 
-`scripts/macos/build_installer.sh` makes the signed installer and puts the
-DMG in the project root. It additionally requires the AAX SDK, PACE tools,
-Developer ID certificates and Apple notarization credentials for a full
-release. See [the release checklist](doc/mdmm_release.md) before uploading
-assets to GitHub.
+If a signed DMG is available instead, open it and run the installer package
+inside. Select the standalone apps and any plug-in formats you use. The
+separate Gearmulator MD and MM apps and plug-ins are optional.
+
+Firmware is not distributed with either download. On first launch without
+existing firmware, the app shows the MD and MM firmware folders. Copy firmware
+images that you are entitled to use into those folders, then relaunch.
+
+## Build a ZIP without an Apple Developer account
+
+Install Xcode's command-line tools, CMake, Python 3, and Git. Clone with
+submodules so the pinned JUCE and DSP changes are present:
+
+```sh
+git clone --recurse-submodules https://github.com/mo0kid/maschine-md-mm.git
+cd maschine-md-mm
+```
+
+From a clean Git checkout, build a universal ZIP with no signing certificates,
+PACE tools, or AAX SDK. You do not need firmware images to compile it:
+
+```sh
+GEARMULATOR_REQUIRE_FIRMWARE_TESTS=0 ./scripts/macos/build_mdmm.sh
+```
+
+The script builds both architectures, runs the tests that do not require
+firmware, and signs the bundles locally (ad hoc). It does not notarize them.
+The ZIP is written to
+`artifacts/macos-mdmm-universal/Maschine-MD-MM-macOS-Universal.zip`; the combined
+app is also available directly at
+`build/macos-mdmm-universal/products/Release/Standalone/Maschine MD-MM.app`.
+Install the ZIP as described above, then supply your own firmware on first
+launch. This build is useful for development, but it has not passed the
+firmware-backed release tests.
+
+For a fully verified ZIP, obtain complete 8 MiB MD and MM firmware images
+matching the hashes checked by the script, then supply their absolute paths
+outside the repository:
+
+```sh
+GEARMULATOR_MD_FIRMWARE_BIN="/absolute/path/to/md.bin" \
+GEARMULATOR_MM_FIRMWARE_BIN="/absolute/path/to/mm.bin" \
+./scripts/macos/build_mdmm.sh
+```
+
+This runs the additional firmware-backed tests and produces the same ZIP plus
+a build receipt. Neither ZIP build requires an Apple Developer account. A
+Windows release package for the combined app is not yet provided.
+
+## Build a signed DMG (maintainers)
+
+Maintainers can run `scripts/macos/build_installer.sh` to produce a signed
+installer package in `artifacts/macos-installer/` and a DMG in the project
+root. This requires Xcode, Developer ID Application and Installer certificates,
+and a `NOTARIZE_PROFILE` stored in Keychain. To make a signed and notarized DMG
+without the optional AAX plug-ins or PACE tools, run:
+
+```sh
+SKIP_AAX=1 TEAM_ID="YOUR_APPLE_TEAM_ID" \
+NOTARIZE_PROFILE="YOUR_KEYCHAIN_PROFILE" \
+./scripts/macos/build_installer.sh
+```
+
+To include the separate MD/MM AAX plug-ins, also provide the AAX SDK, PACE
+wraptool and account, and both wrap GUIDs:
+
+```sh
+TEAM_ID="YOUR_APPLE_TEAM_ID" \
+JUCE_GLOBAL_AAX_SDK_PATH="/absolute/path/to/AAX_SDK" \
+PACE_ACCOUNT="YOUR_PACE_ACCOUNT" \
+MD_PACE_WCGUID="YOUR_MD_WRAP_GUID" \
+MM_PACE_WCGUID="YOUR_MM_WRAP_GUID" \
+NOTARIZE_PROFILE="YOUR_KEYCHAIN_PROFILE" \
+./scripts/macos/build_installer.sh
+```
+
+The script does not upload anything. See the [release checklist](doc/mdmm_release.md)
+for signing, notarization, and final hardware checks.
 
 ## Implementation references
 

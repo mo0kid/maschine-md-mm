@@ -21,8 +21,10 @@ the installer. No firmware or user data belongs in a GitHub release.
 3. Check MD and MM playback, recording, pad lights, strip lights, both LCDs,
    and the 1/5 focus buttons on a connected Maschine MK3. Verify the pad
    response during MM playback while record is enabled.
-4. Run `scripts/macos/build_installer.sh` with the AAX SDK, PACE tools,
-   signing certificates and notary credentials configured. The DMG appears
+4. Run `scripts/macos/build_installer.sh` with signing certificates and notary
+   credentials configured. To omit AAX and its SDK/PACE requirements, set
+   `SKIP_AAX=1`; otherwise provide the AAX SDK, PACE tools, and wrap GUIDs.
+   The DMG appears
    in the project root; the signed package appears under
    `artifacts/macos-installer/`. Do not add either binary to Git.
 5. Verify the final DMG mounts and contains the notarized package. Install

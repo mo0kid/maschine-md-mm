@@ -23,17 +23,12 @@ Configure plugin formats:
 ### Build Commands
 
 **Windows:**
-```bash
-cmake . -B temp/cmake_win64 -G "Visual Studio 15 2017 Win64"
-cmake --build temp/cmake_win64 --config Release -j 4
-cd temp/cmake_win64 && cpack -G ZIP
-```
+The combined Maschine MD-MM target is `mdmmJucePlugin_Standalone`. A Windows
+release packager for this product has not been established yet.
 
 **Current Development Setup:**
-- Build directory: `.\temp\cmake_vs26`
-- Contains the Visual Studio 2026 solution currently in use
-- When building or testing, use this directory
-- **For quick compile checks, use Debug config** (`--config Debug`) — it is much faster than Release
+- The macOS release build uses `build/macos-mdmm-universal` by default.
+- The combined app target is `mdmmJucePlugin_Standalone`.
 
 **Linux:**
 ```bash
@@ -44,12 +39,12 @@ cd temp/cmake_linux && cpack -G DEB  # or RPM or ZIP
 
 **macOS:**
 ```bash
-cmake -G Xcode -S . -B temp/cmake
-cmake --build temp/cmake --config Release
-cd temp/cmake && cpack -G ZIP
+scripts/macos/build_mdmm.sh
+scripts/macos/build_installer.sh
 ```
 
-Convenience build scripts exist: `build_win64.bat`, `build_linux.sh`, `build_mac.sh`
+The macOS scripts build and package Maschine MD-MM with the separate MD/MM
+products. `build_linux.sh` remains an upstream general-purpose helper.
 
 ### Tests
 
@@ -198,9 +193,9 @@ Managed as git submodules or in-tree:
 
 ### GitHub Actions
 GitHub Actions workflows (`.github/workflows/`):
-- `cmake.yml` - Build matrix: Ubuntu, macOS 14, Windows 2022 with default/Ninja generators
-- `nightly.yml` - Nightly builds
-- `release.yml` - Release builds
+- `elektron-macos.yml` - Maschine MD-MM macOS build and package verification
+- `elektron-prerelease.yml` - macOS prerelease tag builds
+- `mdmm-audio-io.yml` - portable MD/MM core audio checks
 
 Linux dependencies for CI:
 ```bash

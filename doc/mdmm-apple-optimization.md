@@ -23,7 +23,7 @@ is not the expected build-local directory.
 | `GEARMULATOR_MDMM_APPLE_PGO_PROFILE` | Empty | Path to the merged profile for `use` mode. |
 
 `build_mdmm.sh` defaults to `arm64;x86_64` and `pgo_mode=none`, producing
-`Gearmulator-Elektron-macOS-Universal.zip`. Those defaults are also explicit in
+`Maschine-MD-MM-macOS-Universal.zip`. Those defaults are also explicit in
 the hosted workflow. A local, guarded arm64 PGO candidate uses the same build,
 test, signing, measurement, packaging, and receipt path:
 
@@ -37,7 +37,7 @@ GEARMULATOR_MM_FIRMWARE_BIN=/private/path/mm-1.32b.bin \
 scripts/macos/build_mdmm.sh SOURCE BUILD OUTPUT
 ```
 
-That command produces `Gearmulator-Elektron-macOS-arm64-PGO.zip`. The script
+That command produces `Maschine-MD-MM-macOS-arm64-PGO.zip`. The script
 accepts only `arm64`, `x86_64`, or the normalized universal pair. PGO `use`
 requires one architecture plus both existing profile and provenance files;
 `generate` is never accepted for a product package. Keep those inputs outside

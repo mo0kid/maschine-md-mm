@@ -2,7 +2,7 @@
 # ============================================================================
 #  Maschine MD-MM macOS Release Installer Builder
 #
-#  Builds installer artifacts for both Gearmulator MD and Gearmulator MM:
+#  Builds installer artifacts for Maschine MD-MM and the separate MD/MM products:
 #    - Standalone -> /Applications/
 #    - AU         -> /Library/Audio/Plug-Ins/Components/
 #    - VST3       -> /Library/Audio/Plug-Ins/VST3/
@@ -37,6 +37,7 @@
 #    CMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 #    BUILD_JOBS=8
 #    SKIP_PLUGIN_BUILD=1
+#    SKIP_AAX=1  (omit AAX and PACE requirements)
 #    SKIP_WRAP=1
 #    SKIP_DMG=1
 #    DMG_OUTPUT_DIR=/absolute/path/to/deliverables
@@ -63,6 +64,7 @@ CMAKE_OSX_SYSROOT="${CMAKE_OSX_SYSROOT:-$(xcrun --sdk macosx --show-sdk-path 2>/
 BUILD_JOBS="${BUILD_JOBS:-8}"
 
 SKIP_SIGN="${SKIP_SIGN:-0}"
+SKIP_AAX="${SKIP_AAX:-0}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-${GEARMULATOR_AAX_SKIP_NOTARIZATION:-0}}"
 CONTINUE_ON_NOTARIZE_FAILURE="${CONTINUE_ON_NOTARIZE_FAILURE:-0}"
 NOTARIZE_PROFILE="${NOTARIZE_PROFILE:-${GEARMULATOR_AAX_NOTARY_PROFILE:-}}"
@@ -188,8 +190,16 @@ resolve_signing_identities() {
 }
 
 run_cmake_plugin_build() {
-  resolve_aax_sdk_path
-  echo "AAX SDK:                    $AAX_SDK_PATH"
+  local aax_cmake_option=OFF
+  local aax_targets=()
+  local aax_sdk_args=()
+  if ! is_truthy "$SKIP_AAX"; then
+    resolve_aax_sdk_path
+    echo "AAX SDK:                    $AAX_SDK_PATH"
+    aax_cmake_option=ON
+    aax_targets=(mdJucePlugin_AAX mmJucePlugin_AAX)
+    aax_sdk_args=(-DJUCE_GLOBAL_AAX_SDK_PATH="$AAX_SDK_PATH")
+  fi
 
   echo "Configuring CMake..."
   cmake -S "$PROJECT_ROOT" -B "$CMAKE_BUILD_DIR" -G Xcode \
@@ -198,11 +208,11 @@ run_cmake_plugin_build() {
     -DCMAKE_OSX_SYSROOT="$CMAKE_OSX_SYSROOT" \
     -DGEARMULATOR_MDMM_APPLE_THINLTO=ON \
     -DGEARMULATOR_MDMM_APPLE_OPTIMIZE_DSP=ON \
-    -DJUCE_GLOBAL_AAX_SDK_PATH="$AAX_SDK_PATH" \
+    ${aax_sdk_args[@]+"${aax_sdk_args[@]}"} \
     -DGEARMULATOR_JUCE_PRODUCTS_ROOT="$PRODUCTS_ROOT" \
     -DBUILD_TESTING=OFF \
     -Dgearmulator_BUILD_JUCEPLUGIN=ON \
-    -Dgearmulator_BUILD_JUCEPLUGIN_AAX=ON \
+    -Dgearmulator_BUILD_JUCEPLUGIN_AAX="$aax_cmake_option" \
     -Dgearmulator_BUILD_JUCEPLUGIN_Standalone=ON \
     -Dgearmulator_BUILD_JUCEPLUGIN_VST2=OFF \
     -Dgearmulator_BUILD_JUCEPLUGIN_VST3=ON \
@@ -218,13 +228,15 @@ run_cmake_plugin_build() {
     -Dgearmulator_SYNTH_NODALRED2X=OFF \
     -Dgearmulator_SYNTH_JE8086=OFF
 
-  rm -rf "$BUILD_DIR/AAX/Gearmulator MD.wrapped.aaxplugin" \
-    "$BUILD_DIR/AAX/Gearmulator MM.wrapped.aaxplugin"
+  if ! is_truthy "$SKIP_AAX"; then
+    rm -rf "$BUILD_DIR/AAX/Gearmulator MD.wrapped.aaxplugin" \
+      "$BUILD_DIR/AAX/Gearmulator MM.wrapped.aaxplugin"
+  fi
 
   echo "Building plugin artifacts..."
   cmake --build "$CMAKE_BUILD_DIR" --config "$BUILD_CONFIG" \
     --parallel "$BUILD_JOBS" --target \
-    mdJucePlugin_AAX mmJucePlugin_AAX \
+    ${aax_targets[@]+"${aax_targets[@]}"} \
     mdJucePlugin_AU mmJucePlugin_AU \
     mdJucePlugin_VST3 mmJucePlugin_VST3 \
     mdJucePlugin_Standalone mmJucePlugin_Standalone mdmmJucePlugin_Standalone
@@ -242,6 +254,11 @@ echo "Output dir:   $OUTPUT_DIR"
 echo "DMG output:   $DMG_OUTPUT_DIR"
 echo "Version:      $VERSION"
 echo "Architectures: $CMAKE_OSX_ARCHITECTURES"
+if is_truthy "$SKIP_AAX"; then
+  echo "AAX included: no"
+else
+  echo "AAX included: yes"
+fi
 echo ""
 
 mkdir -p "$OUTPUT_DIR" "$DMG_OUTPUT_DIR"
@@ -269,7 +286,11 @@ MM_VST3="$BUILD_DIR/VST3/Gearmulator MM.vst3"
 MD_AAX="$BUILD_DIR/AAX/Gearmulator MD.aaxplugin"
 MM_AAX="$BUILD_DIR/AAX/Gearmulator MM.aaxplugin"
 
-for bundle in "$MD_APP" "$MM_APP" "$MDMM_APP" "$MD_AU" "$MM_AU" "$MD_VST3" "$MM_VST3" "$MD_AAX" "$MM_AAX"; do
+bundles=("$MD_APP" "$MM_APP" "$MDMM_APP" "$MD_AU" "$MM_AU" "$MD_VST3" "$MM_VST3")
+if ! is_truthy "$SKIP_AAX"; then
+  bundles+=("$MD_AAX" "$MM_AAX")
+fi
+for bundle in "${bundles[@]}"; do
   validate_bundle "$bundle"
 done
 
@@ -327,8 +348,10 @@ RESOURCES="$WORK_DIR/resources"
 mkdir -p "$STAGING/apps/Applications" \
   "$STAGING/au/Library/Audio/Plug-Ins/Components" \
   "$STAGING/vst3/Library/Audio/Plug-Ins/VST3" \
-  "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins" \
   "$PKG_OUTPUT" "$RESOURCES"
+if ! is_truthy "$SKIP_AAX"; then
+  mkdir -p "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins"
+fi
 
 ditto --noextattr --norsrc "$MD_APP" "$STAGING/apps/Applications/Gearmulator MD.app"
 ditto --noextattr --norsrc "$MM_APP" "$STAGING/apps/Applications/Gearmulator MM.app"
@@ -337,8 +360,10 @@ ditto --noextattr --norsrc "$MD_AU" "$STAGING/au/Library/Audio/Plug-Ins/Componen
 ditto --noextattr --norsrc "$MM_AU" "$STAGING/au/Library/Audio/Plug-Ins/Components/Gearmulator MM.component"
 ditto --noextattr --norsrc "$MD_VST3" "$STAGING/vst3/Library/Audio/Plug-Ins/VST3/Gearmulator MD.vst3"
 ditto --noextattr --norsrc "$MM_VST3" "$STAGING/vst3/Library/Audio/Plug-Ins/VST3/Gearmulator MM.vst3"
-wrap_aax "$MD_AAX" "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MD.aaxplugin" "$MD_PACE_WCGUID"
-wrap_aax "$MM_AAX" "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MM.aaxplugin" "$MM_PACE_WCGUID"
+if ! is_truthy "$SKIP_AAX"; then
+  wrap_aax "$MD_AAX" "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MD.aaxplugin" "$MD_PACE_WCGUID"
+  wrap_aax "$MM_AAX" "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MM.aaxplugin" "$MM_PACE_WCGUID"
+fi
 
 if ! is_truthy "$SKIP_SIGN"; then
   for bundle in \
@@ -355,14 +380,16 @@ if ! is_truthy "$SKIP_SIGN"; then
   done
 fi
 
-for bundle in \
-  "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MD.aaxplugin" \
-  "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MM.aaxplugin"; do
-  validate_bundle "$bundle"
-  if ! is_truthy "$SKIP_SIGN" && ! is_truthy "${SKIP_WRAP:-0}"; then
-    codesign --verify --deep --strict --verbose=2 "$bundle"
-  fi
-done
+if ! is_truthy "$SKIP_AAX"; then
+  for bundle in \
+    "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MD.aaxplugin" \
+    "$STAGING/aax/Library/Application Support/Avid/Audio/Plug-Ins/Gearmulator MM.aaxplugin"; do
+    validate_bundle "$bundle"
+    if ! is_truthy "$SKIP_SIGN" && ! is_truthy "${SKIP_WRAP:-0}"; then
+      codesign --verify --deep --strict --verbose=2 "$bundle"
+    fi
+  done
+fi
 
 make_preinstall() {
   local directory="$1"
@@ -388,8 +415,10 @@ make_preinstall "$WORK_DIR/scripts/au" "/Library/Audio/Plug-Ins/Components" \
   "Gearmulator MD.component" "Gearmulator MM.component"
 make_preinstall "$WORK_DIR/scripts/vst3" "/Library/Audio/Plug-Ins/VST3" \
   "Gearmulator MD.vst3" "Gearmulator MM.vst3"
-make_preinstall "$WORK_DIR/scripts/aax" "/Library/Application Support/Avid/Audio/Plug-Ins" \
-  "Gearmulator MD.aaxplugin" "Gearmulator MM.aaxplugin"
+if ! is_truthy "$SKIP_AAX"; then
+  make_preinstall "$WORK_DIR/scripts/aax" "/Library/Application Support/Avid/Audio/Plug-Ins" \
+    "Gearmulator MD.aaxplugin" "Gearmulator MM.aaxplugin"
+fi
 
 cat > "$WORK_DIR/scripts/au/postinstall" <<'EOF'
 #!/bin/bash
@@ -420,7 +449,11 @@ run_pkgbuild() {
   pkgbuild "${args[@]}" "$PKG_OUTPUT/$key.pkg"
 }
 
-for component in apps au vst3 aax; do
+components=(apps au vst3)
+if ! is_truthy "$SKIP_AAX"; then
+  components+=(aax)
+fi
+for component in "${components[@]}"; do
   run_pkgbuild "$component"
 done
 
@@ -443,6 +476,14 @@ cat > "$RESOURCES/welcome.html" <<EOF
 EOF
 
 HOST_ARCHITECTURES="${CMAKE_OSX_ARCHITECTURES//;/,}"
+AAX_OUTLINE=""
+AAX_CHOICE=""
+AAX_PKG_REF=""
+if ! is_truthy "$SKIP_AAX"; then
+  AAX_OUTLINE='<line choice="aax"/>'
+  AAX_CHOICE="<choice id=\"aax\" title=\"AAX (Pro Tools)\"><pkg-ref id=\"$PRODUCT_IDENTIFIER.aax\"/></choice>"
+  AAX_PKG_REF="<pkg-ref id=\"$PRODUCT_IDENTIFIER.aax\" version=\"$VERSION\">aax.pkg</pkg-ref>"
+fi
 cat > "$WORK_DIR/distribution.xml" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
@@ -452,16 +493,16 @@ cat > "$WORK_DIR/distribution.xml" <<EOF
 $BACKGROUND_XML
     <options customize="allow" require-scripts="false" hostArchitectures="$HOST_ARCHITECTURES"/>
     <choices-outline>
-        <line choice="apps"/><line choice="au"/><line choice="vst3"/><line choice="aax"/>
+        <line choice="apps"/><line choice="au"/><line choice="vst3"/>$AAX_OUTLINE
     </choices-outline>
     <choice id="apps" title="Standalone Applications"><pkg-ref id="$PRODUCT_IDENTIFIER.apps"/></choice>
     <choice id="au" title="Audio Units"><pkg-ref id="$PRODUCT_IDENTIFIER.au"/></choice>
     <choice id="vst3" title="VST3"><pkg-ref id="$PRODUCT_IDENTIFIER.vst3"/></choice>
-    <choice id="aax" title="AAX (Pro Tools)"><pkg-ref id="$PRODUCT_IDENTIFIER.aax"/></choice>
+    $AAX_CHOICE
     <pkg-ref id="$PRODUCT_IDENTIFIER.apps" version="$VERSION">apps.pkg</pkg-ref>
     <pkg-ref id="$PRODUCT_IDENTIFIER.au" version="$VERSION">au.pkg</pkg-ref>
     <pkg-ref id="$PRODUCT_IDENTIFIER.vst3" version="$VERSION">vst3.pkg</pkg-ref>
-    <pkg-ref id="$PRODUCT_IDENTIFIER.aax" version="$VERSION">aax.pkg</pkg-ref>
+    $AAX_PKG_REF
 </installer-gui-script>
 EOF
 

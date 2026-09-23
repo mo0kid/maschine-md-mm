@@ -8,26 +8,19 @@ Gearmulator is a low-level IC emulator that recreates classic virtual analog syn
 
 ## Build Commands
 
-**Current dev setup uses `temp/cmake_vs26` with Visual Studio 2026.**
+**The Maschine MD-MM release path is macOS.**
 
 ```bash
-# Configure (Windows)
-cmake . -B temp/cmake_vs26 -G "Visual Studio 17 2022"
+# Build and verify the macOS apps and plug-ins
+scripts/macos/build_mdmm.sh
 
-# Build (use Debug for quick compile checks, Release for full optimization)
-cmake --build temp/cmake_vs26 --config Debug -j 4
-cmake --build temp/cmake_vs26 --config Release -j 4
-
-# Package
-cd temp/cmake_vs26 && cpack -G ZIP
-
-# Run tests
-ctest -C Release
+# Create the signed macOS installer
+scripts/macos/build_installer.sh
 ```
 
 Per-synth CMake flags: `-Dgearmulator_SYNTH_OSIRUS=ON`, `_OSTIRUS`, `_VAVRA`, `_XENIA`, `_NODALRED2X`, `_JE8086`, `_VFX`, `_TS10`. Plugin format flags: `gearmulator_BUILD_JUCEPLUGIN`, `_CLAP`, `_LV2`, `gearmulator_BUILD_FX_PLUGIN`.
 
-Convenience scripts: `build_win64.bat`, `build_linux.sh`, `build_mac.sh`.
+There is no Windows release packager for the combined app yet.
 
 ## Architecture
 
@@ -76,7 +69,7 @@ Convenience scripts: `build_win64.bat`, `build_linux.sh`, `build_mac.sh`.
 - `source/juce.cmake` — JUCE plugin configuration and multi-format support
 - `source/skins.cmake` — Skin asset compilation
 - `scripts/Jenkinsfile` / `JenkinsfileMulti` — Private CI (Jenkins)
-- `.github/workflows/cmake.yml` — Public CI (GitHub Actions)
+- `.github/workflows/elektron-macos.yml` — Maschine MD-MM macOS build and package verification
 
 ## Where to Make Changes
 

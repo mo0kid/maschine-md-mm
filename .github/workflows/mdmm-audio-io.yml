@@ -36,7 +36,6 @@ on:
       - "source/mc68k/**"
       - "scripts/macos/build_mdmm.sh"
       - "scripts/macos/verify_mdmm_package.sh"
-      - "scripts/windows/build_mdmm.ps1"
   push:
     branches:
       - main
@@ -75,7 +74,6 @@ on:
       - "source/mc68k/**"
       - "scripts/macos/build_mdmm.sh"
       - "scripts/macos/verify_mdmm_package.sh"
-      - "scripts/windows/build_mdmm.ps1"
   workflow_dispatch:
 
 permissions:

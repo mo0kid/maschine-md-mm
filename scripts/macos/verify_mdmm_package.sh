@@ -93,14 +93,14 @@ trap 'rm -rf "${verification_root}"' EXIT
 
 /usr/bin/ditto -x -k "${archive}" "${verification_root}"
 shopt -s nullglob
-package_dirs=("${verification_root}"/Gearmulator-Elektron-macOS-*)
+package_dirs=("${verification_root}"/Maschine-MD-MM-macOS-*)
 shopt -u nullglob
 if [[ ${#package_dirs[@]} -ne 1 || ! -d "${package_dirs[0]}" ]]; then
   echo "Expected exactly one extracted package directory, found ${#package_dirs[@]}" >&2
   exit 3
 fi
 package_dir="${package_dirs[0]}"
-setup_command="${package_dir}/macsetup_Gearmulator-Elektron.command"
+setup_command="${package_dir}/macsetup_Maschine-MD-MM.command"
 install_guide="${package_dir}/INSTALL-macOS.txt"
 
 if find "${package_dir}" -type f \
@@ -121,6 +121,7 @@ if [[ ! -f "${install_guide}" ]]; then
 fi
 
 bundles=(
+  "${package_dir}/Maschine MD-MM.app"
   "${package_dir}/Gearmulator MD.app"
   "${package_dir}/Gearmulator MM.app"
   "${package_dir}/Gearmulator MD.vst3"

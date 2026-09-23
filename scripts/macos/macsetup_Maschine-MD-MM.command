@@ -6,13 +6,13 @@ set -u
 /usr/bin/xattr -d com.apple.quarantine "$0" >/dev/null 2>&1 || true
 
 current_location="$(cd "$(dirname "$0")" && pwd)"
-products=("Gearmulator MD" "Gearmulator MM")
+products=("Maschine MD-MM" "Gearmulator MD" "Gearmulator MM")
 formats=("app" "vst3" "component")
 found=0
 failed=0
 
 echo
-echo "Clearing extended attributes for Gearmulator MD/MM"
+echo "Clearing extended attributes for Maschine MD-MM and the separate MD/MM products"
 echo "Location: ${current_location}"
 echo
 
@@ -33,7 +33,7 @@ done
 
 echo
 if [[ ${found} -eq 0 ]]; then
-  echo "No Gearmulator MD/MM applications, VST3 plug-ins, or Audio Units were found beside this script."
+  echo "No Maschine MD-MM or separate MD/MM bundles were found beside this script."
   exit 1
 fi
 if [[ ${failed} -ne 0 ]]; then
