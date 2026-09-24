@@ -5,6 +5,8 @@ an independent fork of
 [joelanders/gearmulator-md-mm](https://github.com/joelanders/gearmulator-md-mm)
 and The Usual Suspects' Gearmulator project.
 
+[Support this project on Ko-fi](https://ko-fi.com/djw_audio).
+
 This project is not affiliated with Elektron, Native Instruments or The Usual
 Suspects. Please report fork-specific issues here, not to the upstream projects.
 
@@ -35,30 +37,73 @@ Suspects. Please report fork-specific issues here, not to the upstream projects.
   functions. Additional output pairs are available in a multi-output VST3 host;
   the standalone apps use stereo output.
 
+## Using a Maschine MK3
+
+Connect the MK3 and open the **Maschine MD-MM** standalone app on macOS. The
+left hardware screen shows Machinedrum (MD); the right shows Monomachine (MM).
+Press display button **1** or **5** to choose which instrument the shared pads,
+knobs and buttons control. Both instruments keep running when you change focus.
+The display buttons above each screen also provide that instrument's page and
+mode controls, regardless of focus.
+
+The integration does not modify or flash the Maschine's firmware, so using the
+app cannot brick the MK3 through a firmware update.
+
+Start by choosing an instrument, selecting a track with **PAD MODE + pad**, and
+using the pads as trigs/steps. Hold a group button **A–H** and press a pad to
+choose a pattern in that bank. Turn the eight knobs below the screens to edit
+DATA ENTRY parameters A–H. The MK3's **SHIFT** button acts as the instrument's
+FUNCTION key for its own secondary operations.
+
+The table lists the MK3 controls and combinations implemented by this app.
+Unless a row says otherwise, they act on the focused instrument. Button numbers
+refer to the eight buttons above the screens, counted from left to right.
+
+| MK3 control or shortcut | Action in Maschine MD-MM |
+| --- | --- |
+| Display button 1 / 5 | Focus MD / MM. |
+| Display button 2 / 6 | Advance the MD synthesis/effects/routing page / MM data page. |
+| Display button 3 / 7 | Advance that instrument's `1:4`–`4:4` scale/page selector. |
+| Display button 4 / 8 | Toggle MD Classic/Extended mode / MM trig-select mode. |
+| Eight knobs below the screens | Turn DATA ENTRY encoders A–H. |
+| NOTE REPEAT + touch a knob | Press that DATA ENTRY encoder while touched; release to let go. With a trig held, this toggles its parameter lock. |
+| 5D encoder turn | Turn MD SOUND SELECTION (also used on its tempo screen) or MM LEVEL. |
+| 5D encoder press / directional buttons | ENTER / navigate up, right, down and left. |
+| Dedicated `<` / `>` buttons | Browse edit pages backward / forward. |
+| PAD MODE + pad | Select MD track 1–16 or MM track 1–6. |
+| MUTE + pad | Toggle mute for MD track 1–16 or MM track 1–6. |
+| Pad 1–16 | Press the corresponding trig/step; when a pattern bank is held, select that pattern slot. |
+| Group A–H + pad | Select a pattern in bank A–H. A–D and E–H also switch the instrument's bank group as needed. |
+| SHIFT | Hold the instrument's FUNCTION key for its firmware shortcuts. |
+| SHIFT + PLAY / STOP | Start / stop **both** instruments together. |
+| PLAY + RECORD | Send the instrument's real-time recording gesture. |
+| ERASE / DUPLICATE | Send FUNCTION + PLAY (clear) / FUNCTION + STOP (paste) to the focused instrument. |
+| PLAY / RECORD / STOP | Use the focused instrument's transport controls. |
+| MIXER + knob 1 / knob 8 | Adjust the selected track's LEVEL/DATA / the app's master output level for the focused instrument. |
+| SAMPLING + turn 5D encoder | Cycle the MK3 lighting effects. |
+| SHIFT + SAMPLING | Toggle decorative lighting on the MK3. |
+| TEMPO | Open the instrument's tempo control. |
+| STEP | Send SCALE on either instrument. |
+| SCENE | Send SONG ENABLE on MM. |
+| PATTERN or ARRANGER | Send PATTERN-SONG on MD. |
+| PLUG-IN or CHANNEL | Send SYNTHESIS-EFFECTS-ROUTING on MD. |
+| BROWSER | Send KIT on MD, or KIT/SONG SETUP on MM. |
+| SELECT or PITCH / MOD | Send ENTER or YES / EXIT or NO. |
+
 ## Install on macOS
 
-The ZIP works without an Apple Developer account. Download it from
-[Releases](https://github.com/mo0kid/maschine-md-mm/releases), or build it using
-the steps below. Fully extract the archive and run
-`macsetup_Maschine-MD-MM.command` from the extracted folder. Then copy
-`Maschine MD-MM.app` to `/Applications` (or run it from the extracted folder).
-This is the combined app needed for Maschine MK3 screen and control integration.
-If you want the separate plug-ins, copy their `.vst3` bundles to
-`~/Library/Audio/Plug-Ins/VST3` and their `.component` bundles to
-`~/Library/Audio/Plug-Ins/Components`. Restart your DAW or rescan plug-ins.
-The setup command prepares the downloaded bundles; it does not install them.
-Because the ZIP is signed locally and is not notarized, macOS may ask you to
-confirm opening its apps or setup command.
+Download the DMG from
+[Releases](https://github.com/mo0kid/maschine-md-mm/releases). Open it and run
+the installer package inside. Select **Maschine MD-MM** for the combined app
+with MK3 screen and control integration. The separate Gearmulator MD and MM
+apps and plug-ins are optional; select any plug-in formats you use. Restart
+your DAW or rescan plug-ins after installing them.
 
-If a signed DMG is available instead, open it and run the installer package
-inside. Select the standalone apps and any plug-in formats you use. The
-separate Gearmulator MD and MM apps and plug-ins are optional.
+Firmware is not included. On first launch without existing firmware, the app
+shows the MD and MM firmware folders. Copy firmware images that you are
+entitled to use into those folders, then relaunch.
 
-Firmware is not distributed with either download. On first launch without
-existing firmware, the app shows the MD and MM firmware folders. Copy firmware
-images that you are entitled to use into those folders, then relaunch.
-
-## Build a ZIP without an Apple Developer account
+## Build a development ZIP
 
 Install Xcode's command-line tools, CMake, Python 3, and Git. Clone with
 submodules so the pinned JUCE and DSP changes are present:
@@ -81,8 +126,15 @@ The ZIP is written to
 `artifacts/macos-mdmm-universal/Maschine-MD-MM-macOS-Universal.zip`; the combined
 app is also available directly at
 `build/macos-mdmm-universal/products/Release/Standalone/Maschine MD-MM.app`.
-Install the ZIP as described above, then supply your own firmware on first
-launch. This build is useful for development, but it has not passed the
+To use the ZIP, fully extract it and run `macsetup_Maschine-MD-MM.command` from
+the extracted folder. Copy `Maschine MD-MM.app` to `/Applications` (or run it
+from that folder). If you want the separate plug-ins, copy their `.vst3` bundles
+to `~/Library/Audio/Plug-Ins/VST3` and their `.component` bundles to
+`~/Library/Audio/Plug-Ins/Components`, then restart your DAW or rescan plug-ins.
+The setup command prepares these bundles; it does not install them. Because
+this ZIP is signed locally and is not notarized, macOS may ask you to confirm
+opening its apps or setup command. Supply your own firmware on first launch.
+This build is useful for development, but it has not passed the
 firmware-backed release tests.
 
 For a fully verified ZIP, obtain complete 8 MiB MD and MM firmware images
@@ -96,8 +148,8 @@ GEARMULATOR_MM_FIRMWARE_BIN="/absolute/path/to/mm.bin" \
 ```
 
 This runs the additional firmware-backed tests and produces the same ZIP plus
-a build receipt. Neither ZIP build requires an Apple Developer account. A
-Windows release package for the combined app is not yet provided.
+a build receipt. A Windows release package for the combined app is not yet
+provided.
 
 ## Build a signed DMG (maintainers)
 
