@@ -21,65 +21,59 @@ namespace mdJucePlugin
 			for(auto& channel : m_noteOwners)
 				channel.fill(0);
 			m_sustainOwners.fill(0);
-			m_mmKeyboardNoteChannels.fill(0);
-			m_mmKeyboardSustainChannels = 0;
+			for(auto& channel : m_mmKeyboardNoteChannels) channel.fill(0);
+			m_mmKeyboardSustainChannels.fill(0);
 		}
 
-		// Channel 1 is the live keyboard input for MM. Translate it to the
-		// focused track's channel; other source channels retain their explicit
-		// track assignment. Return a mask because one pitch may be held on more
-		// than one track when the performer switches tracks mid-phrase.
+		// All live MIDI input follows the selected MM track. Retain ownership per
+		// source channel so releasing one keyboard cannot release another's notes.
 		uint16_t monomachineChannels(const uint8_t status, const uint8_t data1,
-			const uint8_t data2, const uint8_t selectedTrack,
-			const uint8_t baseChannel)
+			const uint8_t data2, const uint8_t trackChannel)
 		{
 			if(status < 0x80 || status >= 0xf0)
 				return 0;
 			const auto sourceChannel = static_cast<uint8_t>(status & 0x0f);
-			if(sourceChannel != 0)
-				return static_cast<uint16_t>(1u << sourceChannel);
-			// The global dump may not have arrived at startup. MM's factory
-			// base channel is 1 (zero-based 0), so use it until known.
-			const auto base = baseChannel < 16 ? baseChannel : 0;
-			const auto trackChannel = static_cast<uint8_t>(
-				base + selectedTrack < 16 ? base + selectedTrack : sourceChannel);
-			const auto current = static_cast<uint16_t>(1u << trackChannel);
+			auto& notes = m_mmKeyboardNoteChannels[sourceChannel];
+			auto& sustain = m_mmKeyboardSustainChannels[sourceChannel];
+			// Unknown/disabled routes never fall back to an arbitrary input channel:
+			// that channel may be configured to start the pattern sequencer.
+			const auto current = static_cast<uint16_t>(trackChannel < 16 ? 1u << trackChannel : 0);
 			const auto kind = status & 0xf0;
 			const auto note = data1 & 0x7f;
 			if(kind == 0x90 && data2 != 0)
 			{
-				m_mmKeyboardNoteChannels[note] |= current;
+				notes[note] |= current;
 				return current;
 			}
 			if(kind == 0x80 || kind == 0x90)
 			{
-				const auto previous = m_mmKeyboardNoteChannels[note];
-				m_mmKeyboardNoteChannels[note] = 0;
+				const auto previous = notes[note];
+				notes[note] = 0;
 				return previous ? previous : current;
 			}
 			if(kind == 0xa0)
-				return m_mmKeyboardNoteChannels[note]
-					? m_mmKeyboardNoteChannels[note] : current;
+				return notes[note]
+					? notes[note] : current;
 			if(kind == 0xb0 && (data1 == 120 || data1 == 123))
 			{
-				auto channels = m_mmKeyboardSustainChannels;
-				for(auto& held : m_mmKeyboardNoteChannels)
+				auto channels = sustain;
+				for(auto& held : notes)
 				{
 					channels |= held;
 					held = 0;
 				}
-				m_mmKeyboardSustainChannels = 0;
+				sustain = 0;
 				return channels ? channels : current;
 			}
 			if(kind == 0xb0 && data1 == 64)
 			{
 				if(data2 >= 64)
 				{
-					m_mmKeyboardSustainChannels |= current;
+					sustain |= current;
 					return current;
 				}
-				const auto channels = m_mmKeyboardSustainChannels;
-				m_mmKeyboardSustainChannels = 0;
+				const auto channels = sustain;
+				sustain = 0;
 				return channels ? channels : current;
 			}
 			return current;
@@ -141,7 +135,7 @@ namespace mdJucePlugin
 	private:
 		std::array<std::array<uint8_t, 128>, 16> m_noteOwners{};
 		std::array<uint8_t, 16> m_sustainOwners{};
-		std::array<uint16_t, 128> m_mmKeyboardNoteChannels{};
-		uint16_t m_mmKeyboardSustainChannels = 0;
+		std::array<std::array<uint16_t, 128>, 16> m_mmKeyboardNoteChannels{};
+		std::array<uint16_t, 16> m_mmKeyboardSustainChannels{};
 	};
 }

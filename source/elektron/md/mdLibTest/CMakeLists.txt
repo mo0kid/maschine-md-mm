@@ -255,6 +255,18 @@ add_test(NAME mdLcdDrumFirmwareTest COMMAND mdRecordFirmwareTest md --drums)
 set_tests_properties(mdLcdDrumFirmwareTest PROPERTIES
 	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 180)
 add_test(NAME mmRecordFirmwareTest COMMAND mdRecordFirmwareTest mm)
+add_test(NAME mdPatternCopyPasteFirmwareTest COMMAND mdRecordFirmwareTest md --copy-paste)
+set_tests_properties(mdPatternCopyPasteFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 90)
+add_test(NAME mmClearTrackFirmwareTest COMMAND mdRecordFirmwareTest mm --clear-track)
+set_tests_properties(mmClearTrackFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 90)
+add_test(NAME mmFactoryResetFirmwareTest COMMAND mdRecordFirmwareTest mm --factory-reset)
+set_tests_properties(mmFactoryResetFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 180)
+add_test(NAME mmTrackMuteFirmwareTest COMMAND mdRecordFirmwareTest mm --track-mutes)
+set_tests_properties(mmTrackMuteFirmwareTest PROPERTIES
+	LABELS "Integration;FirmwareTest;Maschine" SKIP_RETURN_CODE 77 TIMEOUT 90)
 add_test(NAME mmRecordedStepLedsFirmwareTest COMMAND mdRecordFirmwareTest mm --step-colours)
 add_test(NAME mmRecordedStepPagesFirmwareTest COMMAND mdRecordFirmwareTest mm --step-pages)
 set_tests_properties(mmRecordedStepPagesFirmwareTest PROPERTIES

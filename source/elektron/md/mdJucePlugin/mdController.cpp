@@ -99,8 +99,44 @@ namespace mdJucePlugin
 			_formatter);
 	}
 
+	uint8_t Controller::getMonomachineNoteChannel(const uint8_t _track) const
+	{
+		const auto routing = m_mmNoteRouting.load(std::memory_order_acquire);
+		md::automation::sysex::GlobalDump channels{};
+		channels.baseChannel = routing & 0xff;
+		channels.autoTrackChannel = (routing >> 8) & 0xff;
+		channels.channelSpan = (routing >> 16) & 0xff;
+		channels.multiTrigChannel = (routing >> 24) & 0xff;
+		channels.multiMapChannel = (routing >> 32) & 0xff;
+		return channels.noteChannel(_track);
+	}
+
+	void Controller::onFactoryReset()
+	{
+		m_mmNoteRouting.store(0x7f7f007f7full, std::memory_order_release);
+		const std::lock_guard synchronizationLock(m_synchronizationLock);
+		m_automationReady.store(false, std::memory_order_release);
+		for(const auto& [address, parameters] : getExposedParameters())
+		{
+			for(auto* parameter : parameters)
+				parameter->setValueFromSynth(parameter->getDefault(),
+					pluginLib::Parameter::Origin::PresetChange);
+			if(auto* slot = findAutomationSlot({address.page, address.partNum, address.paramNum}))
+			{
+				const auto publication = createPublication(static_cast<uint8_t>(
+					std::clamp(parameters.front()->getDefault(), 0, 127)), false);
+				slot->deliveryFloorRevision.store(publicationRevision(publication), std::memory_order_release);
+				slot->scanPublication.store(0, std::memory_order_release);
+				slot->publication.store(publication, std::memory_order_release);
+			}
+
+		}
+		requestAutomationState(true);
+	}
+
 	void Controller::onStateLoaded()
 	{
+		m_mmNoteRouting.store(0x7f7f007f7full, std::memory_order_release);
 		// Loading/replacing the emulated device establishes a new authoritative
 		// baseline even when it selects the same numbered Kit as the old device.
 		// Restored AUTO publications remain dirty and therefore still win when the
@@ -796,15 +832,18 @@ namespace mdJucePlugin
 	{
 		if(m_syntheticFirmwareReadyForTests)
 			return true;
-		bool ready = true;
-		getProcessor().getPlugin().withDeviceLocked(
-			[&ready](synthLib::Device* const _device)
+		// The message-thread timer also polls during fast boot, when the worker
+		// repeatedly owns the device lock. Waiting here freezes both app LCDs for
+		// most of their splash animation. Retry on the next timer tick instead.
+		const auto ready = getProcessor().getPlugin().tryWithDeviceLocked(
+			[](synthLib::Device* const _device)
 			{
 				if(const auto* const device = dynamic_cast<md::Device*>(_device))
-					ready = !device->isProjectStateRestorePending()
+					return !device->isProjectStateRestorePending()
 						&& device->getHardware().isFirmwareMidiReady();
+				return true;
 			});
-		return ready;
+		return ready.value_or(false);
 	}
 
 	bool Controller::parseSysexMessage(const pluginLib::SysEx& _message,
@@ -881,6 +920,11 @@ namespace mdJucePlugin
 			m_automationReady.store(false, std::memory_order_release);
 			m_synchronizationEpoch.fetch_add(1, std::memory_order_acq_rel);
 			m_baseChannel.store(global->baseChannel, std::memory_order_release);
+			m_mmNoteRouting.store(uint64_t(global->baseChannel)
+				| (uint64_t(global->autoTrackChannel) << 8)
+				| (uint64_t(global->channelSpan) << 16)
+				| (uint64_t(global->multiTrigChannel) << 24)
+				| (uint64_t(global->multiMapChannel) << 32), std::memory_order_release);
 			m_drumNoteMap = global->drumNoteMap;
 			m_haveGlobal.store(true, std::memory_order_release);
 			completeSynchronizationIfReady();

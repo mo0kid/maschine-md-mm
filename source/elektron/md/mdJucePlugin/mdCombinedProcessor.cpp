@@ -2,6 +2,7 @@
 
 #include "mdCombinedEditor.h"
 #include "mdLib/mddevice.h"
+#include "mdLib/mdsysexfile.h"
 
 #include "dsp56kBase/threadtools.h"
 
@@ -32,18 +33,101 @@ namespace mdJucePlugin
 		, m_monomachine(md::MachineModel::Monomachine, false)
 		, m_maschine(m_machinedrum, m_monomachine)
 	{
-		m_machinedrum.setForceSoftwareRendererForSession(true);
-		m_monomachine.setForceSoftwareRendererForSession(true);
 		m_mmWorker = std::thread([this] { runMonomachineWorker(); });
 	}
 
 	CombinedProcessor::~CombinedProcessor()
 	{
+		if(isSysexCapturing())
+			(void)endSysexCapture();
 		stopFastBootWorkers();
 		m_stoppingWorker.store(true, std::memory_order_release);
 		m_mmWorkReady.signal();
 		if(m_mmWorker.joinable())
 			m_mmWorker.join();
+	}
+
+	bool CombinedProcessor::beginSysexCapture(const md::MachineModel _model)
+	{
+		if(isSysexCapturing())
+			return false;
+		{
+			std::lock_guard lock(m_captureMutex);
+			m_captureBytes.clear();
+			m_captureBytes.reserve(md::g_midiSysexTransferMaxBytes);
+			m_captureIncomplete.store(false, std::memory_order_relaxed);
+			m_captureModel.store(_model, std::memory_order_release);
+		}
+		auto& machine = _model == md::MachineModel::Machinedrum
+			? m_machinedrum : m_monomachine;
+		auto& routing = machine.getMidiRoutingMatrix();
+		using Source = synthLib::MidiEventSource;
+		using Type = synthLib::MidiRoutingMatrix::EventType;
+		m_capturePreviousHostRoute = routing.enabled(Source::Device,
+			Source::Host, Type::SysEx);
+		m_captureEnabled.store(true, std::memory_order_release);
+		routing.setEnabled(Source::Device, Source::Host, Type::SysEx, true);
+		return true;
+	}
+
+	std::optional<CombinedProcessor::SysexCapture>
+	CombinedProcessor::endSysexCapture()
+	{
+		if(!m_captureEnabled.exchange(false, std::memory_order_acq_rel))
+			return std::nullopt;
+		const auto model = m_captureModel.load(std::memory_order_acquire);
+		auto& machine = model == md::MachineModel::Machinedrum
+			? m_machinedrum : m_monomachine;
+		using Source = synthLib::MidiEventSource;
+		using Type = synthLib::MidiRoutingMatrix::EventType;
+		machine.getMidiRoutingMatrix().setEnabled(Source::Device,
+			Source::Host, Type::SysEx, m_capturePreviousHostRoute);
+		std::lock_guard lock(m_captureMutex);
+		return SysexCapture{model, std::move(m_captureBytes),
+			m_captureIncomplete.load(std::memory_order_relaxed)};
+	}
+
+	void CombinedProcessor::captureSysex(const juce::MidiBuffer& _midi,
+		const md::MachineModel _model)
+	{
+		if(!m_captureEnabled.load(std::memory_order_acquire)
+			|| m_captureModel.load(std::memory_order_acquire) != _model)
+			return;
+		for(const auto event : _midi)
+		{
+			const auto* bytes = event.data;
+			const auto size = static_cast<size_t>(event.numBytes);
+			if(size < 9 || bytes[0] != 0xf0 || bytes[size - 1] != 0xf7)
+				continue;
+			// Only user dumps and sample dumps belong in an exported file.
+			const auto elektronHeader = bytes[1] == 0x00
+				&& bytes[2] == 0x20 && bytes[3] == 0x3c
+				&& bytes[4] == (_model == md::MachineModel::Machinedrum ? 2 : 3);
+			const auto elektron = elektronHeader
+				&& ((size >= 15 && (bytes[6] == 0x50 || bytes[6] == 0x52
+					|| bytes[6] == 0x67 || bytes[6] == 0x69
+					|| bytes[6] == 0x5d))
+					|| (size == 13 && bytes[6] == 0x73));
+			const auto sample = _model == md::MachineModel::Machinedrum
+				&& bytes[1] == 0x7e && (bytes[3] == 1 || bytes[3] == 2);
+			if(!elektron && !sample)
+				continue;
+			std::unique_lock lock(m_captureMutex, std::try_to_lock);
+			if(!lock.owns_lock())
+			{
+				if(m_captureEnabled.load(std::memory_order_relaxed))
+					m_captureIncomplete.store(true, std::memory_order_relaxed);
+				continue;
+			}
+			if(!m_captureEnabled.load(std::memory_order_relaxed))
+				return;
+			if(size > md::g_midiSysexTransferMaxBytes - m_captureBytes.size())
+			{
+				m_captureIncomplete.store(true, std::memory_order_relaxed);
+				continue;
+			}
+			m_captureBytes.insert(m_captureBytes.end(), bytes, bytes + size);
+		}
 	}
 
 	void CombinedProcessor::stopFastBootWorkers()
@@ -226,7 +310,7 @@ namespace mdJucePlugin
 		m_mmMidi.clear();
 		const auto focused = m_maschine.focusedModel();
 		const auto selectedMmTrack = m_maschine.selectedMonomachineTrack();
-		const auto mmBaseChannel = m_monomachine.getMidiBaseChannel();
+		const auto mmNoteChannel = m_monomachine.getMonomachineNoteChannel(selectedMmTrack);
 		for(const auto event : _midi)
 		{
 			const auto message = event.getMessage();
@@ -242,8 +326,8 @@ namespace mdJucePlugin
 			{
 				const auto channels = m_midiRouter.monomachineChannels(bytes[0],
 					size > 1 ? bytes[1] : 0, size > 2 ? bytes[2] : 0,
-					selectedMmTrack, mmBaseChannel);
-				if(channels == 0)
+					mmNoteChannel);
+				if(bytes[0] >= 0xf0)
 					m_mmMidi.addEvent(message, event.samplePosition);
 				else
 				{
@@ -281,6 +365,8 @@ namespace mdJucePlugin
 			m_mmAudio.clear();
 			m_mmMidi.clear();
 		}
+		captureSysex(m_mdMidi, md::MachineModel::Machinedrum);
+		captureSysex(m_mmMidi, md::MachineModel::Monomachine);
 
 		for(int channel = 0; channel < 2; ++channel)
 		{

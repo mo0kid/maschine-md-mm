@@ -46,6 +46,11 @@ namespace md::automation::sysex
 		uint8_t slot;
 		uint8_t baseChannel;
 		std::array<uint8_t, 128> drumNoteMap{};
+		uint8_t autoTrackChannel = 0x7f;
+		uint8_t channelSpan = 0;
+		uint8_t multiTrigChannel = 0x7f;
+		uint8_t multiMapChannel = 0x7f;
+		uint8_t noteChannel(uint8_t _track) const;
 	};
 
 	struct KitDump

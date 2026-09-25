@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <future>
 #include <iostream>
 #include <map>
 #include <new>
@@ -70,6 +71,14 @@ namespace mdJucePlugin
 {
 	struct ControllerAutomationTestAccess
 	{
+		static bool firmwareReady(const Controller& _controller)
+		{
+			return _controller.firmwareReadyForAutomation();
+		}
+		static void poll(Controller& _controller)
+		{
+			_controller.onControllerTimer();
+		}
 		static void useSyntheticFirmware(Controller& _controller)
 		{
 			_controller.m_syntheticFirmwareReadyForTests = true;
@@ -1087,12 +1096,59 @@ namespace
 			"startup replayed a stale LFO value over the restored Kit");
 	}
 
+	void verifyBootPollingDoesNotBlock(Harness& harness)
+	{
+		using Access = mdJucePlugin::ControllerAutomationTestAccess;
+		const auto readyBefore = Access::firmwareReady(harness.controller);
+		const auto requestsBefore = harness.controller.getSynchronizationRequestCount();
+		const auto expectedPublisher = harness.processor.getPlugin().withDeviceLocked(
+			[](synthLib::Device* _device)
+			{
+				auto* device = dynamic_cast<md::Device*>(_device);
+				return device ? device->getFrontPanelPublisher()
+					: std::shared_ptr<md::FrontPanelPublisher>{};
+			});
+		std::promise<void> locked;
+		auto lockAcquired = locked.get_future();
+		std::promise<void> release;
+		auto releaseRequested = release.get_future();
+		std::atomic<bool> holderFinished{false};
+		std::thread bootWorker([&]
+		{
+			harness.processor.getPlugin().withDeviceLocked([&](synthLib::Device*)
+			{
+				locked.set_value();
+				// Bound a regression failure instead of hanging the test forever.
+				releaseRequested.wait_for(std::chrono::seconds(2));
+				holderFinished.store(true);
+			});
+		});
+		lockAcquired.wait();
+		Access::poll(harness.controller);
+		const bool readyWhileBusy = Access::firmwareReady(harness.controller);
+		// This is the first consumer lookup, just like an editor opening after
+		// fast boot has started. It must see the constructor's cached publisher.
+		const auto publisherWhileBusy = harness.processor.tryGetFrontPanelPublisher();
+		const bool returnedWhileLocked = !holderFinished.load();
+		const auto requestsWhileBusy = harness.controller.getSynchronizationRequestCount();
+		release.set_value();
+		bootWorker.join();
+		require(returnedWhileLocked, "automation polling blocked behind the boot worker");
+		require(!readyWhileBusy && requestsWhileBusy == requestsBefore,
+			"busy boot worker was treated as ready for automation requests");
+		require(publisherWhileBusy == expectedPublisher,
+			"editor opening during boot could not acquire the LCD publisher");
+		require(Access::firmwareReady(harness.controller) == readyBefore,
+			"automation readiness did not recover after the boot worker released its lock");
+	}
+
 	void verifyArchitecture(const md::MachineModel _model)
 	{
 		if(_model == md::MachineModel::Monomachine)
 			verifyCleanLfoRestoreUsesFirmwareKit();
 		verifyPendingStateBeforeSynchronization(_model);
 		Harness harness(_model);
+		verifyBootPollingDoesNotBlock(harness);
 		mdJucePlugin::ControllerAutomationTestAccess::useSyntheticFirmware(
 			harness.controller);
 		mdJucePlugin::ControllerAutomationTestAccess::verifyDrumDisplayActivity(harness.controller);

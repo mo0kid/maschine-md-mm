@@ -99,6 +99,8 @@ namespace md
 		{
 			return m_preparationContext;
 		}
+		static std::unique_ptr<PreparedState> prepareFactoryReset(
+			std::shared_ptr<const PreparationContext> _context);
 		static std::unique_ptr<PreparedState> prepareState(
 			std::shared_ptr<const PreparationContext> _context,
 			const std::vector<uint8_t>& _state, synthLib::StateType _type,

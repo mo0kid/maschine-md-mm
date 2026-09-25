@@ -1646,10 +1646,10 @@ namespace mdJucePlugin
 			const juce::String screen = progress->receiveKind == md::MidiSysexMessageKind::DigiPro
 				? "GLOBAL > FILE > DIGIPRO MGR > RECEIVE" : "GLOBAL > FILE > SYSEX RECV";
 			const juce::String message = m_model == md::MachineModel::Machinedrum
-				? "The samples have been acknowledged, but Machinedrum may still be CLEANING/LOADING. Close this message and wait for that display to finish. Then right-click and choose Resume SysEx Transfer to send the rest of this file, or cancel the remaining transfer."
+				? "The samples have been acknowledged, but Machinedrum may still be CLEANING/LOADING. Close this message and wait for that display to finish. Then choose Resume SysEx Transfer from the menu to send the rest of this file, or cancel the remaining transfer."
 				: "The next part of this file needs " + screen
 					+ ". Close this message, leave the previous receive screen, and open that screen. "
-					"When the display says WAITING, right-click and choose Resume SysEx Transfer. "
+					"When the display says WAITING, choose Resume SysEx Transfer from the menu. "
 					"You can also cancel the remaining transfer.";
 			genericUI::MessageBox::showOk(genericUI::MessageBox::Icon::Info,
 				"SysEx transfer paused", message.toStdString(), getRmlComponent());
@@ -1680,7 +1680,7 @@ namespace mdJucePlugin
 					"SysEx transfer paused",
 					"The host has not advanced the emulated MIDI port for five seconds. "
 					"Resume audio processing and disable plug-in bypass/suspension, or "
-					"right-click the instrument to cancel the transfer.",
+					"use the SysEx transfer menu to cancel the transfer.",
 					getRmlComponent());
 			}
 			return;

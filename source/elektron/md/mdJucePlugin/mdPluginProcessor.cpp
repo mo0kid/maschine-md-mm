@@ -144,14 +144,16 @@ namespace mdJucePlugin
 	AudioPluginAudioProcessor::tryGetFrontPanelPublisher()
 	{
 		auto publisher = getPlugin().tryWithDeviceLocked(
-			[](synthLib::Device* const _device)
+			[this](synthLib::Device* const _device)
 			{
 				auto* const device = dynamic_cast<md::Device*>(_device);
-				return device ? device->getFrontPanelPublisher()
+				auto current = device ? device->getFrontPanelPublisher()
 					: std::shared_ptr<md::FrontPanelPublisher>{};
+				std::atomic_store(&m_frontPanelPublisher, current);
+				return current;
 			});
 		return publisher ? std::move(*publisher)
-			: std::shared_ptr<md::FrontPanelPublisher>{};
+			: std::atomic_load(&m_frontPanelPublisher);
 	}
 
 	uint8_t AudioPluginAudioProcessor::getCurrentPattern()
@@ -167,6 +169,11 @@ namespace mdJucePlugin
 	uint8_t AudioPluginAudioProcessor::getMidiBaseChannel()
 	{
 		return dynamic_cast<Controller&>(getController()).getAutomationBaseChannel();
+	}
+
+	uint8_t AudioPluginAudioProcessor::getMonomachineNoteChannel(const uint8_t _track)
+	{
+		return dynamic_cast<Controller&>(getController()).getMonomachineNoteChannel(_track);
 	}
 
 	bool AudioPluginAudioProcessor::sendPanelEvent(const uint8_t _command,
@@ -202,6 +209,42 @@ namespace mdJucePlugin
 	{
 		return juce::File(juce::String::fromUTF8(getDataFolder().c_str()))
 			.getChildFile("nvram").getChildFile("mm-storage-recovery.bin");
+	}
+
+	bool AudioPluginAudioProcessor::factoryReset(juce::String& _error)
+	{
+		std::unique_lock operationLock(m_storageLoadMutex, std::try_to_lock);
+		if(!operationLock.owns_lock()) {
+			_error = "Another storage operation is in progress.";
+			return false;
+		}
+		const auto context = getPlugin().withDeviceLocked([](synthLib::Device* current) {
+			auto* device = dynamic_cast<md::Device*>(current);
+			return device && !device->isProjectStateRestorePending()
+				? device->getPreparationContext() : std::shared_ptr<const md::Device::PreparationContext>{};
+		});
+		if(!context) {
+			_error = "The local machine is unavailable or is still restoring a project.";
+			return false;
+		}
+		auto prepared = md::Device::prepareFactoryReset(context);
+		if(!prepared) {
+			_error = "Factory data could not be prepared. The machine was not reset.";
+			return false;
+		}
+		const bool committed = getPlugin().withDeviceLocked([&](synthLib::Device* current) {
+			auto* device = dynamic_cast<md::Device*>(current);
+			return device && !device->isProjectStateRestorePending()
+				&& device->commitPreparedState(*prepared);
+		});
+		prepared.reset();
+		if(!committed) {
+			_error = "The machine changed while preparing the reset. Please try again.";
+			return false;
+		}
+		dynamic_cast<Controller&>(getController()).onFactoryReset();
+		updateHostDisplay(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
+		return true;
 	}
 
 	bool AudioPluginAudioProcessor::loadStorageImage(const juce::File& _source,
@@ -407,6 +450,10 @@ namespace mdJucePlugin
 		}
 
 		getController();
+		// Capture the shared LCD source before prepareToPlay can start fast boot.
+		// An editor opened during boot may never win a device try-lock until the
+		// splash has finished, even though this publisher can be read independently.
+		(void)tryGetFrontPanelPublisher();
 		const auto latencyBlocks = getConfig().getIntValue("latencyBlocks", static_cast<int>(getPlugin().getLatencyBlocks()));
 		Processor::setLatencyBlocks(latencyBlocks);
 		m_startupDiagnosticsEnabled = !_ephemeralConfig

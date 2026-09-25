@@ -7,6 +7,7 @@
 namespace mdJucePlugin
 {
 	class CombinedProcessor;
+	class Editor;
 
 	class CombinedEditor final : public juce::AudioProcessorEditor,
 		private juce::Timer
@@ -17,12 +18,26 @@ namespace mdJucePlugin
 
 		void paint(juce::Graphics& _graphics) override;
 		void resized() override;
+		void mouseDown(const juce::MouseEvent& _event) override;
 
 	private:
+		struct SysexMenu;
+		friend struct SysexMenu;
+		Editor* editorFor(bool _monomachine) const;
+		void confirmFactoryReset(bool _monomachine);
+		void startSysexSave(bool _monomachine);
+		void finishSysexSave();
+		void cancelSysexSave();
 		void timerCallback() override;
 		void restorePreferredSize();
 		void fixParentWindowSize() const;
 
+		CombinedProcessor& m_processor;
+		std::unique_ptr<SysexMenu> m_sysexMenu;
+		std::unique_ptr<juce::FileChooser> m_sysexSaveChooser;
+		bool m_sysexSaveChooserOpen = false;
+		bool m_factoryResetPending = false;
+		juce::File m_sysexSaveFile;
 		std::unique_ptr<juce::AudioProcessorEditor> m_mdEditor;
 		std::unique_ptr<juce::AudioProcessorEditor> m_mmEditor;
 		juce::ComponentBoundsConstrainer m_sizeConstrainer;

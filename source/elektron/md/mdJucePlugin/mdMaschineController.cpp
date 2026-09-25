@@ -61,7 +61,7 @@ namespace mdJucePlugin::maschine
 			case 56: return 1;  // Channel
 			case 53: return 2;  // Plug-in
 			case 57: return 3;  // Arranger
-			case 58: return 4;  // Browser
+			case 58: return 5;  // Browser
 			case 51: return 6;  // Sampling (indexed RGB)
 			case 59: return 7;  // Left
 			case 50: return 8;  // Right
@@ -83,6 +83,7 @@ namespace mdJucePlugin::maschine
 			case 13: return 35; // Group F
 			case 14: return 36; // Group G
 			case 15: return 37; // Group H
+			case 42: return 39; // Erase / Clear
 			case 45: return 42; // Play
 			case 46: return 43; // Record
 			case 47: return 44; // Stop
@@ -91,6 +92,7 @@ namespace mdJucePlugin::maschine
 			case 27: return 50; // Step / Scale
 			case 29: return 51; // Scene / Song
 			case 30: return 52; // Pattern
+			case 34: return 55; // Duplicate / Paste
 			case 35: return 56; // Select / Enter
 			case 37: return 58; // Mute
 			default: return {};
@@ -139,6 +141,26 @@ namespace mdJucePlugin::maschine
 		m_waitCondition.notify_all();
 		if(m_thread.joinable())
 			m_thread.join();
+	}
+
+	uint8_t Controller::selectedMonomachineTrack()
+	{
+		// MIDI must follow app track selection even without a Maschine connection.
+		if(auto publisher = m_monomachine.tryGetFrontPanelPublisher())
+		{
+			md::FrontPanel panel;
+			if(publisher->tryRead(panel))
+				for(uint8_t track = 0; track < 6; ++track)
+				{
+					const auto color = panel.getMonomachineTrackLedColor(track);
+					if(color == md::FrontPanel::LedColor::Red || color == md::FrontPanel::LedColor::Yellow)
+					{
+						m_mmSelectedTrack.store(track);
+						break;
+					}
+				}
+		}
+		return m_mmSelectedTrack.load();
 	}
 
 	void Controller::setFocusedModel(const md::MachineModel _model)
@@ -213,18 +235,26 @@ namespace mdJucePlugin::maschine
 	void Controller::pulseDisplayControl(const uint8_t _slot,
 		const md::MachineModel _model, const md::PanelControl _control)
 	{
-		if(_slot >= m_displayControlReleaseMs.size())
+		if(_slot >= m_displayPulses.size())
 			return;
-		// Hold the emulated key across more than one controller refresh so the
-		// firmware's panel scan always observes both edges.
-		if(m_displayControlReleaseMs[_slot].exchange(0) != 0)
-			sendControl(_model, _control, false);
-		sendControl(_model, _control, true);
 		const auto now = std::chrono::steady_clock::now();
 		const auto nowMs = static_cast<uint64_t>(
 			std::chrono::duration_cast<std::chrono::milliseconds>(
 				now.time_since_epoch()).count());
-		m_displayControlReleaseMs[_slot].store(nowMs + 66);
+		{
+			std::lock_guard lock(m_displayPulseMutex);
+			auto& pulse = m_displayPulses[_slot];
+			if(pulse.deadlineMs != 0)
+				pulse.pending = std::min(pulse.pending + 1u, 16u);
+			else
+			{
+				// The firmware must scan each press and each release. Queue
+				// rapid taps instead of sending both edges in one callback.
+				sendControl(_model, _control, true);
+				pulse.pressed = true;
+				pulse.deadlineMs = nowMs + 66;
+			}
+		}
 		m_waitCondition.notify_all();
 	}
 
@@ -278,6 +308,28 @@ namespace mdJucePlugin::maschine
 			: md::automation::machinedrum::TrackCount;
 		if(_index >= trackCount)
 			return;
+		if(_model == md::MachineModel::Monomachine)
+		{
+			// A panel shortcut must address the numbered track regardless of MIDI
+			// base/span/auto-channel settings, and toggle the firmware's current state.
+			const auto function = md::panelPacket(_model, md::PanelControl::Function).value();
+			bool functionHeld;
+			{
+				std::lock_guard lock(m_inputMutex);
+				functionHeld = (rowsFor(_model).mask(function.row) & function.mask) != 0;
+			}
+			if(!functionHeld)
+			{
+				sendControl(_model, md::PanelControl::Function, true);
+				std::this_thread::sleep_for(std::chrono::milliseconds(33));
+			}
+			tapControl(_model, static_cast<md::PanelControl>(
+				static_cast<uint8_t>(md::PanelControl::Track1) + _index));
+			std::this_thread::sleep_for(std::chrono::milliseconds(33));
+			if(!functionHeld)
+				sendControl(_model, md::PanelControl::Function, false);
+			return;
+		}
 		const auto mutePage = _model == md::MachineModel::Monomachine
 			? md::automation::monomachine::Mute
 			: md::automation::machinedrum::Mute;
@@ -343,7 +395,7 @@ namespace mdJucePlugin::maschine
 		{
 			// The second button above each display advances that instrument's
 			// edit page, independent of controller focus.
-			if(_event.pressed)
+			if(_event.pressed && !wasPressed)
 			{
 				const auto target = _event.id == 65
 					? md::MachineModel::Machinedrum
@@ -362,7 +414,7 @@ namespace mdJucePlugin::maschine
 			// 1:4..4:4 page selector, independent of controller focus. Complete
 			// the tap on the press event because Maschine's display-button release
 			// reports are not reliable in every controller mode.
-			if(_event.pressed)
+			if(_event.pressed && !wasPressed)
 			{
 				const auto target = _event.id == 66
 					? md::MachineModel::Machinedrum
@@ -377,7 +429,7 @@ namespace mdJucePlugin::maschine
 		{
 			// The fourth button over each display changes the model-specific mode
 			// shown at the far right of that display's header.
-			if(_event.pressed)
+			if(_event.pressed && !wasPressed)
 			{
 				const auto target = _event.id == 67
 					? md::MachineModel::Machinedrum
@@ -502,27 +554,35 @@ namespace mdJucePlugin::maschine
 			m_waitCondition.notify_all();
 			return;
 		}
-		if(_event.id == 43 || _event.id == 33)
+		if(_event.id == 42 || _event.id == 34)
 		{
-			// ERase and DUPLICATE provide the two native FUNCTION shortcuts that
-			// Shift+Play/Stop deliberately repurpose for dual-machine transport.
-			const auto target = pressTarget(_event.id, _event.pressed);
-			const auto action = _event.id == 43
+			// NIHIA MK3: ERASE=42, DUPLICATE=34 (43 is TAP, 33 is VARIATION).
+			// One complete, scan-visible chord per press also handles quick taps.
+			if(!_event.pressed || wasPressed)
+				return;
+			const auto target = m_focused.load();
+			const auto action = _event.id == 42
 				? md::PanelControl::Play   // FUNCTION + PLAY = CLEAR
 				: md::PanelControl::Stop;  // FUNCTION + STOP = PASTE
-			if(_event.pressed)
+			const auto function = md::panelPacket(target, md::PanelControl::Function).value();
+			bool functionHeld;
+			{
+				std::lock_guard lock(m_inputMutex);
+				functionHeld = (rowsFor(target).mask(function.row) & function.mask) != 0;
+			}
+			if(!functionHeld)
 			{
 				sendControl(target, md::PanelControl::Function, true);
-				sendControl(target, action, true);
+				std::this_thread::sleep_for(std::chrono::milliseconds(33));
 			}
-			else
-			{
-				sendControl(target, action, false);
+			tapControl(target, action);
+			std::this_thread::sleep_for(std::chrono::milliseconds(33));
+			if(!functionHeld)
 				sendControl(target, md::PanelControl::Function, false);
-			}
 			m_waitCondition.notify_all();
 			return;
 		}
+
 		if(_event.id == 46)
 		{
 			// Keep quick taps down long enough for the firmware to scan them.
@@ -933,7 +993,7 @@ namespace mdJucePlugin::maschine
 
 		// Browser is the entry point to the custom controller surface. Keep it
 		// clearly visible even when it is not being pressed.
-		nihia::setLed(result, 4, nihia::LedColor::Cyan,
+		nihia::setLed(result, 5, nihia::LedColor::White,
 			buttons[58] ? 3 : 2);
 
 		// Sampling continuously sweeps the palette; Shift + Sampling adds an
@@ -1054,25 +1114,6 @@ namespace mdJucePlugin::maschine
 
 		active(24, padMode, nihia::LedColor::Yellow);
 
-		const auto mmTrackColor = [&](const size_t _track)
-		{
-			if(_track >= 6)
-				return md::FrontPanel::LedColor::Off;
-			constexpr std::array<uint8_t, 6> banks
-				{0x25, 0x25, 0x24, 0x24, 0x24, 0x24};
-			constexpr std::array<uint8_t, 6> greenBits{0, 2, 0, 2, 4, 6};
-			const auto raw = _mmPanel.getLedBankRaw(banks[_track]);
-			const auto greenBit = greenBits[_track];
-			const bool green = ((raw >> greenBit) & 1u) == 0;
-			const bool red = ((raw >> (greenBit + 1)) & 1u) == 0;
-			if(green && red)
-				return md::FrontPanel::LedColor::Yellow;
-			if(green)
-				return md::FrontPanel::LedColor::Green;
-			if(red)
-				return md::FrontPanel::LedColor::Red;
-			return md::FrontPanel::LedColor::Off;
-		};
 
 		for(size_t i = 0; i < pads.size(); ++i)
 		{
@@ -1089,7 +1130,14 @@ namespace mdJucePlugin::maschine
 						nihia::LedColor::Off, 0);
 					continue;
 				}
-				lit = isTrackMuted(focused, static_cast<uint8_t>(i));
+				if(focused == md::MachineModel::Monomachine)
+				{
+					const auto native = _mmPanel.getMonomachineTrackLedColor(i);
+					lit = native == md::FrontPanel::LedColor::Yellow
+						|| native == md::FrontPanel::LedColor::Off;
+				}
+				else
+					lit = isTrackMuted(focused, static_cast<uint8_t>(i));
 				color = lit ? nihia::LedColor::Red : accent;
 			}
 			else if(padMode)
@@ -1102,7 +1150,7 @@ namespace mdJucePlugin::maschine
 							nihia::LedColor::Off, 0);
 						continue;
 					}
-					switch(mmTrackColor(i))
+					switch(_mmPanel.getMonomachineTrackLedColor(i))
 					{
 					case md::FrontPanel::LedColor::Green:
 						color = nihia::LedColor::Green; lit = true; break;
@@ -1195,6 +1243,7 @@ namespace mdJucePlugin::maschine
 		bool haveLeft = false;
 		bool haveRight = false;
 		bool haveLeds = false;
+		auto lastLedFrame = std::chrono::steady_clock::time_point{};
 		// Opt-in, bounded hardware diagnostics; inactive during normal launches.
 		const bool traceLeds = std::getenv("MD_MASCHINE_LED_TRACE") != nullptr;
 		unsigned traceLines = 0;
@@ -1214,6 +1263,18 @@ namespace mdJucePlugin::maschine
 		auto& mmSections = mmDisplay.sections;
 		auto lastLeftFrame = std::chrono::steady_clock::time_point{};
 		auto lastRightFrame = std::chrono::steady_clock::time_point{};
+		constexpr md::MachineModel displayModels[] =
+		{
+			md::MachineModel::Machinedrum, md::MachineModel::Machinedrum,
+			md::MachineModel::Monomachine, md::MachineModel::Monomachine,
+			md::MachineModel::Machinedrum, md::MachineModel::Monomachine,
+		};
+		constexpr md::PanelControl displayControls[] =
+		{
+			md::PanelControl::SynthesisEffectsRouting, md::PanelControl::Scale,
+			md::PanelControl::DataPageForward, md::PanelControl::Scale,
+			md::PanelControl::ClassicExtended, md::PanelControl::TrigSelect,
+		};
 
 		while(!m_stopping.load())
 		{
@@ -1282,25 +1343,25 @@ namespace mdJucePlugin::maschine
 			const auto nowMs = static_cast<uint64_t>(
 				std::chrono::duration_cast<std::chrono::milliseconds>(
 					now.time_since_epoch()).count());
-			constexpr md::MachineModel displayModels[] =
+			for(uint8_t slot = 0; slot < m_displayPulses.size(); ++slot)
 			{
-				md::MachineModel::Machinedrum, md::MachineModel::Machinedrum,
-				md::MachineModel::Monomachine, md::MachineModel::Monomachine,
-				md::MachineModel::Machinedrum, md::MachineModel::Monomachine,
-			};
-			constexpr md::PanelControl displayControls[] =
-			{
-				md::PanelControl::SynthesisEffectsRouting, md::PanelControl::Scale,
-				md::PanelControl::DataPageForward, md::PanelControl::Scale,
-				md::PanelControl::ClassicExtended, md::PanelControl::TrigSelect,
-			};
-			for(uint8_t slot = 0; slot < m_displayControlReleaseMs.size(); ++slot)
-			{
-				auto deadline = m_displayControlReleaseMs[slot].load();
-				if(deadline != 0 && nowMs >= deadline
-					&& m_displayControlReleaseMs[slot].compare_exchange_strong(
-						deadline, 0))
+				std::lock_guard lock(m_displayPulseMutex);
+				auto& pulse = m_displayPulses[slot];
+				if(pulse.deadlineMs == 0 || nowMs < pulse.deadlineMs)
+					continue;
+				if(pulse.pressed)
+				{
 					sendControl(displayModels[slot], displayControls[slot], false);
+					pulse.pressed = false;
+					pulse.deadlineMs = pulse.pending ? nowMs + 33 : 0;
+				}
+				else if(pulse.pending)
+				{
+					--pulse.pending;
+					sendControl(displayModels[slot], displayControls[slot], true);
+					pulse.pressed = true;
+					pulse.deadlineMs = nowMs + 66;
+				}
 			}
 			{
 				std::lock_guard lock(m_inputMutex);
@@ -1419,7 +1480,10 @@ namespace mdJucePlugin::maschine
 				mmRecordActive, mmRecordActive && !mmDisplay.recording.realtime,
 				mdRecordActive, mdRecordActive && !mdDisplay.recording.realtime,
 				static_cast<unsigned>(mdSections.selected));
-			if(!haveLeds || leds != previousLeds)
+			// The NI hardware service can replace pad colours while changing
+			// sections. Refresh the desired frame even when it has not changed,
+			// so a transient yellow frame cannot remain on the pads indefinitely.
+			if(!haveLeds || leds != previousLeds || now - lastLedFrame >= 500ms)
 			{
 				if(m_client.sendLeds(leds))
 				{
@@ -1448,12 +1512,19 @@ namespace mdJucePlugin::maschine
 					}
 					previousLeds = leds;
 					haveLeds = true;
+					lastLedFrame = now;
 				}
 			}
 
 			std::unique_lock waitLock(m_waitMutex);
 			m_waitCondition.wait_for(waitLock, 33ms,
 				[this] { return m_stopping.load(); });
+		}
+		for(uint8_t slot = 0; slot < m_displayPulses.size(); ++slot)
+		{
+			std::lock_guard lock(m_displayPulseMutex);
+			if(m_displayPulses[slot].pressed)
+				sendControl(displayModels[slot], displayControls[slot], false);
 		}
 		if(m_client.isConnected())
 			(void)m_client.sendLeds({});

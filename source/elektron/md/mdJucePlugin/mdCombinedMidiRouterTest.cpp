@@ -60,14 +60,14 @@ int main()
 	const auto mmChannels = [&](uint8_t status, uint8_t data1, uint8_t data2,
 		uint8_t track, uint8_t base = 0)
 	{
-		return router.monomachineChannels(status, data1, data2, track, base);
+		return router.monomachineChannels(status, data1, data2, static_cast<uint8_t>(base + track));
 	};
 	expect(mmChannels(0x90, 60, 100, 2) == (1u << 2),
 		"channel-1 keyboard note missed selected MM track 3");
 	expect(mmChannels(0x80, 60, 0, 4) == (1u << 2),
 		"MM note-off followed changed focus instead of original track");
-	expect(mmChannels(0x91, 61, 100, 4) == (1u << 1),
-		"explicit MIDI channel 2 was incorrectly remapped");
+	expect(mmChannels(0x91, 61, 100, 4) == (1u << 4),
+		"MIDI channel 2 missed selected MM track 5");
 	expect(mmChannels(0x90, 62, 100, 1, 3) == (1u << 4),
 		"configured MM base channel was ignored");
 	expect(mmChannels(0x90, 64, 100, 0) == 1
@@ -83,5 +83,23 @@ int main()
 	router.reset();
 	expect(mmChannels(0x80, 65, 0, 0) == 1,
 		"MM channel owners survived reset");
+	// Identical pitches on different input channels retain independent releases.
+	expect(mmChannels(0x92, 60, 100, 4) == (1u << 4)
+		&& mmChannels(0x9f, 60, 100, 1) == (1u << 1)
+		&& mmChannels(0x82, 60, 0, 0) == (1u << 4)
+		&& mmChannels(0x9f, 60, 0, 0) == (1u << 1),
+		"cross-channel note release lost the original selected track");
+	expect(mmChannels(0xb2, 64, 127, 4) == (1u << 4)
+		&& mmChannels(0xbf, 64, 127, 1) == (1u << 1)
+		&& mmChannels(0xb2, 64, 0, 0) == (1u << 4)
+		&& mmChannels(0xbf, 64, 0, 0) == (1u << 1),
+		"cross-channel sustain release lost the original selected track");
+
+	expect(router.monomachineChannels(0x90, 70, 100, 0x7f) == 0,
+		"unavailable note route fell back to a possible sequencer channel");
+	expect(router.monomachineChannels(0x90, 71, 100, 4) == (1u << 4)
+		&& router.monomachineChannels(0x80, 71, 0, 0x7f) == (1u << 4),
+		"lost note-off when MIDI configuration became unavailable");
+
 	std::cout << "Combined MIDI focus routing: PASS\n";
 }

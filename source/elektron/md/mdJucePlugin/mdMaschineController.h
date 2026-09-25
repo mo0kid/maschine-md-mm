@@ -26,7 +26,7 @@ namespace mdJucePlugin::maschine
 		Controller& operator=(const Controller&) = delete;
 
 		md::MachineModel focusedModel() const { return m_focused.load(); }
-		uint8_t selectedMonomachineTrack() const { return m_mmSelectedTrack.load(); }
+		uint8_t selectedMonomachineTrack();
 		void setFocusedModel(md::MachineModel _model);
 
 	private:
@@ -79,7 +79,14 @@ namespace mdJucePlugin::maschine
 		std::array<bool, 16> m_padMuteGesture{};
 		std::array<bool, 8> m_encoderTouched{};
 		std::array<bool, 8> m_encoderTouchActive{};
-		std::array<std::atomic<uint64_t>, 6> m_displayControlReleaseMs{};
+		struct DisplayControlPulse
+		{
+			uint64_t deadlineMs = 0;
+			unsigned pending = 0;
+			bool pressed = false;
+		};
+		std::mutex m_displayPulseMutex;
+		std::array<DisplayControlPulse, 6> m_displayPulses{};
 		bool m_noteRepeatHeld = false;
 		bool m_padModeHeld = false;
 		bool m_muteHeld = false;

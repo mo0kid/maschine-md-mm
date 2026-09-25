@@ -123,6 +123,7 @@ namespace md
 
 		// Decoded LED state. Boolean accessors return true when the LED is lit.
 		bool getStepLed(uint32_t _index) const; // Machinedrum steps 1..16
+		LedColor getMonomachineTrackLedColor(uint32_t _index) const; // MM tracks 1..6
 		LedColor getMonomachineStepLedColor(uint32_t _index) const; // MM steps 1..16
 		static LedColor decodeMonomachineStepLedColor(uint8_t _raw,
 			uint32_t _indexInBank);

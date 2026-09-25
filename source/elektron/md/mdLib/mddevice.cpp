@@ -374,6 +374,22 @@ namespace md
 			_validated.m_context, std::move(replacement), true));
 	}
 
+	std::unique_ptr<Device::PreparedState> Device::prepareFactoryReset(
+		std::shared_ptr<const PreparationContext> _context)
+	{
+		if(!_context) return {};
+		synthLib::DeviceCreateParams params;
+		params.romData = _context->m_romData;
+		params.romName = _context->m_romName;
+		params.homePath = _context->m_homePath;
+		params.customData = deviceCustomData(_context->m_model);
+		auto factory = std::make_unique<Device>(params);
+		if(!factory->isValid()) return {};
+		// Include factory flash so commit does not preserve the live user samples.
+		return std::unique_ptr<PreparedState>(new PreparedState(
+			std::move(_context), std::move(factory->m_hardware), true));
+	}
+
 	std::unique_ptr<Device::PreparedState> Device::prepareState(
 		std::shared_ptr<const PreparationContext> _context,
 		const std::vector<uint8_t>& _state, const synthLib::StateType _type,

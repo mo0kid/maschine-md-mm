@@ -44,11 +44,13 @@ namespace mdJucePlugin
 		uint8_t getCurrentPattern();
 		uint16_t getDrumHitMask();
 		uint8_t getMidiBaseChannel();
+		uint8_t getMonomachineNoteChannel(uint8_t _track);
 		bool sendPanelEvent(uint8_t _command, uint8_t _argument);
 		static md::MachineModel getCompiledProductModel();
 		static bool hasEmbeddedProductResource(std::string_view _filename);
 		juce::File getInstalledFactoryStorageImage() const;
 		juce::File getStorageRecoveryImage() const;
+		bool factoryReset(juce::String& _error);
 		bool loadStorageImage(const juce::File& _source, juce::String& _result);
 		bool serviceFactoryInitialization();
 		bool serviceProjectStateRestore();
@@ -86,6 +88,9 @@ namespace mdJucePlugin
 		const md::MachineModel m_model;
 		const std::vector<uint8_t> m_initialPatchRam;
 		const std::optional<std::string> m_deviceHomePath;
+		// Access with atomic shared_ptr operations: the UI and Maschine reader
+		// can both acquire this while the boot/audio worker owns the device lock.
+		std::shared_ptr<md::FrontPanelPublisher> m_frontPanelPublisher;
 		std::mutex m_storageLoadMutex;
 		uint64_t m_reportedRestoreFailureGeneration = 0;
 		juce::File m_startupDiagnosticsFile;

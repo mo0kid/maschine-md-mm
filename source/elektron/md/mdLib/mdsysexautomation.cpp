@@ -189,6 +189,17 @@ namespace md::automation::sysex
 		return parseStatus(_model, _message, g_setStatus);
 	}
 
+	uint8_t GlobalDump::noteChannel(const uint8_t _track) const
+	{
+		const auto safe = [&](unsigned channel) {
+			return channel < 16 && channel != multiTrigChannel && channel != multiMapChannel;
+		};
+		const unsigned direct = unsigned(baseChannel) + _track;
+		if(_track < 6 && _track < channelSpan && safe(direct) && direct != autoTrackChannel)
+			return static_cast<uint8_t>(direct);
+		return _track < 6 && safe(autoTrackChannel) ? autoTrackChannel : 0x7f;
+	}
+
 	std::optional<GlobalDump> parseGlobalDump(const MachineModel _model,
 		const MessageView _message)
 	{
@@ -202,6 +213,7 @@ namespace md::automation::sysex
 			return std::nullopt;
 
 		uint8_t channel = 0;
+		GlobalDump result{};
 		if(_model == MachineModel::Machinedrum)
 		{
 			constexpr size_t baseChannelPosition = 0xad;
@@ -212,13 +224,18 @@ namespace md::automation::sysex
 		else
 		{
 			const auto decoded = decodeMonomachinePayload(_message);
-			if(!decoded || decoded->size() < 2)
+			if(!decoded || decoded->size() < 5)
 				return std::nullopt;
 			channel = (*decoded)[1];
+			result.autoTrackChannel = (*decoded)[0];
+			result.channelSpan = (*decoded)[2];
+			result.multiTrigChannel = (*decoded)[3];
+			result.multiMapChannel = (*decoded)[4];
 		}
 
 		if(channel >= 16 && channel != 0x7f) return std::nullopt;
-		GlobalDump result{slot, channel};
+		result.slot = slot;
+		result.baseChannel = channel;
 		result.drumNoteMap.fill(0xff);
 		if(_model == MachineModel::Machinedrum)
 		{

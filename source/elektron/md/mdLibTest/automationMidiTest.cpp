@@ -408,6 +408,23 @@ namespace
 			&& parsedGlobal->baseChannel == 5,
 			"wrong MM base channel or broken 7-bit/RLE decode");
 
+		// A short track-channel span puts special sequencer channels where naive
+		// base+track routing would send ordinary keyboard notes.
+		globalData[0] = 8; // Auto Track
+		globalData[1] = 0;
+		globalData[2] = 2;
+		globalData[3] = 2; // Multi Trig / sequencer start
+		globalData[4] = 3; // Multi Map / pattern triggers
+		const auto shortSpan = parseGlobalDump(md::MachineModel::Monomachine, makeMmDump(0x50, globalData));
+		require(shortSpan && shortSpan->noteChannel(0) == 0 && shortSpan->noteChannel(1) == 1
+			&& shortSpan->noteChannel(2) == 8 && shortSpan->noteChannel(3) == 8
+			&& shortSpan->noteChannel(4) == 8 && shortSpan->noteChannel(5) == 8,
+			"keyboard notes were routed to sequencer channels instead of Auto Track");
+		globalData[0] = 0x7f;
+		const auto disabledAuto = parseGlobalDump(md::MachineModel::Monomachine, makeMmDump(0x50, globalData));
+		require(disabledAuto && disabledAuto->noteChannel(4) == 0x7f,
+			"disabled Auto Track fell back to a sequencer channel");
+
 		std::vector<uint8_t> kitData(698, 0);
 		for(uint8_t track = 0; track < monomachine::TrackCount; ++track)
 		{

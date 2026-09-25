@@ -182,6 +182,15 @@ namespace md
 		return ((raw >> bit) & 1) == 0;   // active-low: 0 bit = lit
 	}
 
+	FrontPanel::LedColor FrontPanel::getMonomachineTrackLedColor(const uint32_t _index) const
+	{
+		if(_index >= 6)
+			return LedColor::Off;
+		const auto bank = static_cast<uint8_t>(_index < 2 ? 0x25 : 0x24);
+		return decodeMonomachineStepLedColor(getLedBankRaw(bank),
+			_index < 2 ? _index : _index - 2);
+	}
+
 	FrontPanel::LedColor FrontPanel::getMonomachineStepLedColor(uint32_t _index) const
 	{
 		if(_index >= 16)

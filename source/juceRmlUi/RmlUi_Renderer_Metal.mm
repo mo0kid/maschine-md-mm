@@ -534,6 +534,10 @@ struct RenderInterface_Metal::Impl
 
 	// Fullscreen quad
 	Rml::CompiledGeometryHandle fullscreenQuadGeometry = {};
+	// Viewport-sized stencil clear quad, reused by every clip mask in a frame.
+	Rml::CompiledGeometryHandle clipClearQuadGeometry = {};
+	int clipClearQuadWidth = 0;
+	int clipClearQuadHeight = 0;
 
 	// Active render target texture (for tracking which render pass we're in)
 	id<MTLTexture> currentMSAATarget = nil;
@@ -1289,6 +1293,11 @@ RenderInterface_Metal::RenderInterface_Metal(Rml::CoreInstance& in_core_instance
 
 RenderInterface_Metal::~RenderInterface_Metal()
 {
+	if (m_impl && m_impl->clipClearQuadGeometry)
+	{
+		ReleaseGeometry(m_impl->clipClearQuadGeometry);
+		m_impl->clipClearQuadGeometry = {};
+	}
 	if (m_impl && m_impl->fullscreenQuadGeometry)
 	{
 		ReleaseGeometry(m_impl->fullscreenQuadGeometry);
@@ -1688,13 +1697,24 @@ void RenderInterface_Metal::RenderToClipMask(Rml::ClipMaskOperation _maskOperati
 
 		m_impl->UsePipeline(MetalGfx::PipelineId::Color, MetalGfx::BlendMode::PremultipliedAlpha, true);
 
-		// Generate a quad in viewport coordinates [0,0]-[W,H] (not NDC [-1,1])
-		// because vertex_main applies the projection matrix.
-		Rml::Mesh clearMesh;
-		Rml::MeshUtilities::GenerateQuad(clearMesh,
-			Rml::Vector2f(0, 0),
-			Rml::Vector2f((float)m_impl->viewportWidth, (float)m_impl->viewportHeight), {});
-		const auto clearGeo = CompileGeometry(clearMesh.vertices, clearMesh.indices);
+		// Vertex positions use viewport coordinates because vertex_main applies
+		// the projection matrix. Rebuild only when the viewport changes; creating
+		// two Metal buffers for every clip mask stalls the render thread.
+		if (!m_impl->clipClearQuadGeometry
+			|| m_impl->clipClearQuadWidth != m_impl->viewportWidth
+			|| m_impl->clipClearQuadHeight != m_impl->viewportHeight)
+		{
+			if (m_impl->clipClearQuadGeometry)
+				ReleaseGeometry(m_impl->clipClearQuadGeometry);
+			Rml::Mesh clearMesh;
+			Rml::MeshUtilities::GenerateQuad(clearMesh,
+				Rml::Vector2f(0, 0),
+				Rml::Vector2f((float)m_impl->viewportWidth, (float)m_impl->viewportHeight), {});
+			m_impl->clipClearQuadGeometry = CompileGeometry(
+				clearMesh.vertices, clearMesh.indices);
+			m_impl->clipClearQuadWidth = m_impl->viewportWidth;
+			m_impl->clipClearQuadHeight = m_impl->viewportHeight;
+		}
 
 		struct { float x, y; float padding[2]; Rml::Matrix4f transform; } uniforms;
 		uniforms.x = 0;
@@ -1703,14 +1723,14 @@ void RenderInterface_Metal::RenderToClipMask(Rml::ClipMaskOperation _maskOperati
 
 		[m_impl->renderEncoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
 
-		auto* geom = reinterpret_cast<MetalGfx::CompiledGeometryData*>(clearGeo);
+		auto* geom = reinterpret_cast<MetalGfx::CompiledGeometryData*>(
+			m_impl->clipClearQuadGeometry);
 		[m_impl->renderEncoder setVertexBuffer:geom->vertexBuffer offset:0 atIndex:0];
 		[m_impl->renderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
 										  indexCount:geom->indexCount
 										   indexType:MTLIndexTypeUInt32
 										 indexBuffer:geom->indexBuffer
 									   indexBufferOffset:0];
-		ReleaseGeometry(clearGeo);
 	}
 
 	int stencilTestValue = m_impl->stencilRef;

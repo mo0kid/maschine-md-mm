@@ -7,7 +7,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
+#include <mutex>
+#include <optional>
 #include <thread>
+#include <vector>
 
 namespace mdJucePlugin
 {
@@ -17,8 +20,20 @@ namespace mdJucePlugin
 		CombinedProcessor();
 		~CombinedProcessor() override;
 
+		void setFocusedModel(md::MachineModel _model) { m_maschine.setFocusedModel(_model); }
+
 		AudioPluginAudioProcessor& machinedrum() { return m_machinedrum; }
 		AudioPluginAudioProcessor& monomachine() { return m_monomachine; }
+
+		struct SysexCapture
+		{
+			md::MachineModel model;
+			std::vector<uint8_t> bytes;
+			bool incomplete = false;
+		};
+		bool beginSysexCapture(md::MachineModel _model);
+		std::optional<SysexCapture> endSysexCapture();
+		bool isSysexCapturing() const { return m_captureEnabled.load(); }
 
 		void prepareToPlay(double _sampleRate, int _maximumBlockSize) override;
 		void releaseResources() override;
@@ -44,6 +59,7 @@ namespace mdJucePlugin
 
 	private:
 		void runMonomachineWorker();
+		void captureSysex(const juce::MidiBuffer& _midi, md::MachineModel _model);
 		void runFastBoot(AudioPluginAudioProcessor& _processor,
 			std::atomic<bool>& _active);
 		void stopFastBootWorkers();
@@ -56,6 +72,12 @@ namespace mdJucePlugin
 		juce::MidiBuffer m_mdMidi;
 		juce::MidiBuffer m_mmMidi;
 		CombinedMidiRouter m_midiRouter;
+		std::mutex m_captureMutex;
+		std::vector<uint8_t> m_captureBytes;
+		std::atomic<bool> m_captureEnabled{false};
+		std::atomic<bool> m_captureIncomplete{false};
+		std::atomic<md::MachineModel> m_captureModel{md::MachineModel::Machinedrum};
+		bool m_capturePreviousHostRoute = false;
 		juce::WaitableEvent m_mmWorkReady;
 		juce::WaitableEvent m_mmWorkFinished;
 		std::atomic<bool> m_stoppingWorker{false};

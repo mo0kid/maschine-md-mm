@@ -23,6 +23,7 @@ namespace mdJucePlugin
 		~Controller() override;
 
 		void onStateLoaded() override;
+		void onFactoryReset();
 
 		uint8_t getPartCount() const override;
 
@@ -47,6 +48,7 @@ namespace mdJucePlugin
 		{
 			return m_baseChannel.load(std::memory_order_acquire);
 		}
+		uint8_t getMonomachineNoteChannel(uint8_t _track) const;
 		uint8_t getCurrentPattern() const
 		{
 			return m_currentPattern.load(std::memory_order_acquire);
@@ -163,6 +165,7 @@ namespace mdJucePlugin
 
 		const md::MachineModel m_model;
 		std::atomic<uint8_t> m_baseChannel{0x7f};
+		std::atomic<uint64_t> m_mmNoteRouting{0x7f7f007f7full};
 		std::atomic<bool> m_haveGlobal{false};
 		std::atomic<bool> m_haveKit{false};
 		std::atomic<bool> m_automationReady{false};

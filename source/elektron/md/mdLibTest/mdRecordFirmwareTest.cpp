@@ -69,6 +69,134 @@ int main(const int _argc, const char* const* const _argv)
 		require(hardware.isAudioReady() && hardware.isFirmwareMidiReady(),
 			"boot incomplete");
 		md::PanelRowState rows;
+		if(_argc >= 3 && std::string_view(_argv[2]) == "--copy-paste")
+		{
+			const auto key = [&](md::PanelControl control, bool down, unsigned milliseconds) {
+				const auto packet = md::panelPacket(model, control).value();
+				const auto event = down ? rows.press(packet) : rows.release(packet);
+				require(hardware.trySendPanelEvent(event.row, event.mask), "copy input rejected");
+				advance(hardware, md::g_samplerate * milliseconds / 1000);
+			};
+			const auto tap = [&](md::PanelControl control) { key(control,true,100); key(control,false,100); };
+			const auto chord = [&](md::PanelControl control) {
+				key(md::PanelControl::Function,true,33);
+				key(control,true,66); key(control,false,33);
+				key(md::PanelControl::Function,false,100);
+			};
+			const auto steps = [&]() {
+				const auto panel = hardware.getFrontPanelSnapshot();
+				unsigned mask = 0;
+				for(unsigned i=0;i<16;++i)
+					if(model == md::MachineModel::Machinedrum ? panel.getStepLed(i)
+						: panel.getMonomachineStepLedColor(i) != md::FrontPanel::LedColor::Off) mask |= 1u << i;
+				return mask;
+			};
+			tap(md::PanelControl::Record);
+			tap(md::PanelControl::Trigger5);
+			tap(md::PanelControl::Trigger13);
+			const auto original = steps();
+			require(original != 0, "copy fixture has no trigs");
+			tap(md::PanelControl::Record);
+			require(!recordLed(hardware,model), "not in pattern copy mode");
+			chord(md::PanelControl::Record);
+			chord(md::PanelControl::Play);
+			tap(md::PanelControl::Record);
+			require(steps()==0, "pattern was not cleared before paste");
+			tap(md::PanelControl::Record);
+			chord(md::PanelControl::Stop);
+			tap(md::PanelControl::Record);
+			require(steps()==original, "PASTE did not restore the copied pattern");
+			std::cout << "PASS: pattern copy/clear/paste restores recorded triggers\n";
+			return 0;
+		}
+		if(_argc >= 3 && std::string_view(_argv[2]) == "--clear-track")
+		{
+			require(model == md::MachineModel::Monomachine, "MM clear fixture requires MM");
+			const auto key = [&](md::PanelControl control, bool down, unsigned milliseconds) {
+				const auto packet = md::panelPacket(model, control).value();
+				const auto event = down ? rows.press(packet) : rows.release(packet);
+				require(hardware.trySendPanelEvent(event.row, event.mask), "clear input rejected");
+				advance(hardware, md::g_samplerate * milliseconds / 1000);
+			};
+			key(md::PanelControl::Record, true, 100);
+			key(md::PanelControl::Record, false, 100);
+			for(const auto control : {md::PanelControl::Trigger5, md::PanelControl::Trigger9, md::PanelControl::Trigger13}) {
+				key(control, true, 100); key(control, false, 100);
+			}
+			require(hardware.getFrontPanelSnapshot().getMonomachineStepLedColor(12) == md::FrontPanel::LedColor::Red,
+				"clear fixture did not record a step");
+			key(md::PanelControl::Function, true, 33);
+			key(md::PanelControl::Play, true, 66);
+			key(md::PanelControl::Play, false, 33);
+			key(md::PanelControl::Function, false, 100);
+			const auto cleared = hardware.getFrontPanelSnapshot();
+			for(unsigned step = 0; step < 16; ++step)
+				require(cleared.getMonomachineStepLedColor(step) == md::FrontPanel::LedColor::Off,
+					"CLEAR left recorded triggers on the selected track");
+			std::cout << "PASS: MM clear removes all selected-track triggers\n";
+			return 0;
+		}
+		if(_argc >= 3 && std::string_view(_argv[2]) == "--factory-reset")
+		{
+			require(model == md::MachineModel::Monomachine, "MM reset fixture requires MM");
+			const auto tap = [&](md::PanelControl control) {
+				const auto packet = md::panelPacket(model, control).value();
+				for(const auto event : {rows.press(packet), rows.release(packet)}) {
+					require(device->getHardware().trySendPanelEvent(event.row, event.mask), "reset fixture input rejected");
+					advance(device->getHardware(), md::g_samplerate / 10);
+				}
+			};
+			tap(md::PanelControl::Record);
+			const auto baseline = device->getFrontPanelSnapshot().getMonomachineStepLedColor(12);
+			tap(md::PanelControl::Trigger13);
+			require(device->getFrontPanelSnapshot().getMonomachineStepLedColor(12) != baseline,
+				"reset fixture did not edit the pattern");
+			auto prepared = md::Device::prepareFactoryReset(device->getPreparationContext());
+			require(prepared && device->commitPreparedState(*prepared), "factory reset failed");
+			prepared.reset();
+			advance(device->getHardware(), md::g_samplerate * 25);
+			require(device->getHardware().isFirmwareMidiReady(), "factory reset did not reboot");
+			tap(md::PanelControl::Record);
+			require(device->getFrontPanelSnapshot().getMonomachineStepLedColor(12) == baseline,
+				"factory reset retained the edited pattern");
+			std::cout << "PASS: MM factory reset discards pattern edits and reboots\n";
+			return 0;
+		}
+		if(_argc >= 3 && std::string_view(_argv[2]) == "--track-mutes")
+		{
+			require(model == md::MachineModel::Monomachine, "MM mute fixture requires MM");
+			const auto muteMask = [&]() {
+				const auto panel = hardware.getFrontPanelSnapshot();
+				unsigned result = 0;
+				for(unsigned track = 0; track < 6; ++track) {
+					const auto color = panel.getMonomachineTrackLedColor(track);
+					if(color == md::FrontPanel::LedColor::Off || color == md::FrontPanel::LedColor::Yellow)
+						result |= 1u << track;
+				}
+				return result;
+			};
+			const auto key = [&](md::PanelControl control, bool down, unsigned milliseconds) {
+				const auto packet = md::panelPacket(model, control).value();
+				const auto event = down ? rows.press(packet) : rows.release(packet);
+				require(hardware.trySendPanelEvent(event.row, event.mask), "mute panel event rejected");
+				advance(hardware, md::g_samplerate * milliseconds / 1000);
+			};
+			const auto baseline = muteMask();
+			// Pad 3 must toggle track 3, including while track 1 has edit focus.
+			for(unsigned track : {2u, 4u, 0u, 1u, 3u, 5u}) {
+				for(unsigned toggle = 0; toggle < 2; ++toggle) {
+					const auto control = static_cast<md::PanelControl>(static_cast<uint8_t>(md::PanelControl::Track1) + track);
+					key(md::PanelControl::Function, true, 33);
+					key(control, true, 66);
+					key(control, false, 33);
+					key(md::PanelControl::Function, false, 33);
+					require(muteMask() == (baseline ^ (toggle == 0 ? 1u << track : 0)),
+						"native mute toggled the wrong track or did not toggle");
+				}
+			}
+			std::cout << "PASS: MM native mute toggles each numbered track and restores its state\n";
+			return 0;
+		}
 		if(_argc >= 3 && std::string_view(_argv[2]) == "--md-pad-cursor")
 		{
 			require(model == md::MachineModel::Machinedrum, "MD cursor fixture requires MD");

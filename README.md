@@ -20,6 +20,9 @@ Suspects. Please report fork-specific issues here, not to the upstream projects.
 - **Maschine MK3 integration (macOS):** the two hardware screens show the
   emulated displays, the controls operate the focused instrument, and the
   strip lights mirror its steps and sections. The combined app is required.
+- **MIDI keyboard focus:** click either instrument panel to focus it. When
+  Monomachine is focused, notes on any MIDI input channel play its selected track,
+  including when Maschine is disconnected. Held notes release on their original tracks.
 - **Key chording / p-locks:** shift-click one or more buttons to hold them
   down until you release the shift key.
 - **Secondary functions:** rather than shift-click Function and another button,
@@ -28,9 +31,9 @@ Suspects. Please report fork-specific issues here, not to the upstream projects.
   Alt/Option-drag to press and turn. With a trig held, pressing its parameter's
   encoder toggles that parameter lock. This applies to encoders A–H, not LEVEL
   or SOUND SELECTION.
-- **Send SysEx File** remains available from the right-click menu in the
-  separate MD and MM apps and plug-ins. The combined Maschine app does not
-  show right-click menus. Follow the machine's normal receive procedure.
+- **SysEx load and save:** use the macOS **File** menu in the combined app to
+  load files into either machine or save dumps sent by its firmware. The
+  separate MD and MM apps and plug-ins retain their right-click send menu.
 - **Panel look and feel:** adjust encoder-drag and mouse-wheel sensitivity in settings.
   An experimental crisp LCD/panel rendering option is also available.
 - **Audio inputs and outputs:** route host audio to the machine's input effects or sampling
@@ -89,6 +92,22 @@ refer to the eight buttons above the screens, counted from left to right.
 | PLUG-IN or CHANNEL | Send SYNTHESIS-EFFECTS-ROUTING on MD. |
 | BROWSER | Send KIT on MD, or KIT/SONG SETUP on MM. |
 | SELECT or PITCH / MOD | Send ENTER or YES / EXIT or NO. |
+
+### Loading and saving SysEx dumps
+
+In the combined macOS app, open the **File** menu in the system menu bar.
+**File > Factory Reset** lets you restore either machine to its factory data after
+confirmation. Save any patterns, kits, settings or sample data you want to keep first.
+Choose **Load SysEx File to Machinedrum...** or **Load SysEx File to
+Monomachine...** to select a `.syx` file. Follow the prompt to put the emulated
+machine in its receive mode. The same menu offers resume and cancel actions
+during a transfer.
+
+To save, choose **Save Machinedrum SysEx Dump...** or **Save Monomachine SysEx
+Dump...** and select a destination. On the emulated machine, use its SysEx SEND
+screen to send the data you want to export. Then choose **Finish Saving SysEx
+Dump** from the menu. The app validates the captured data before writing the
+`.syx` file. Choose **Cancel Saving SysEx Dump** to discard a capture.
 
 ## Install on macOS
 
