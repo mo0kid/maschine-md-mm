@@ -34,7 +34,7 @@ if(NOT CMAKE_GENERATOR_TOOLSET AND CMAKE_GENERATOR MATCHES "Visual Studio 18")
 endif()
 
 # Fork release version. Keep the internal project name for existing build flags.
-project(gearmulator VERSION 0.1.0)
+project(gearmulator VERSION 0.1.1)
 
 include(base.cmake)
 include(CTest)
